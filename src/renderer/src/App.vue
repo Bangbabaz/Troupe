@@ -269,16 +269,19 @@ watch(settingsTab, (tab) => {
 })
 
 // 浏览器自动化、Agent 协作与终端控制使用独立 MCP，避免无关工具进入同一个上下文。
-const BROWSER_MCP_URL = 'http://127.0.0.1:9876/sse'
-const AGENT_MCP_URL = 'http://127.0.0.1:9877/sse'
-const TERMINAL_MCP_URL = 'http://127.0.0.1:9878/sse'
+const BROWSER_MCP_SSE_URL = 'http://127.0.0.1:9876/sse'
+const AGENT_MCP_SSE_URL = 'http://127.0.0.1:9877/sse'
+const TERMINAL_MCP_SSE_URL = 'http://127.0.0.1:9878/sse'
+const BROWSER_MCP_HTTP_URL = 'http://127.0.0.1:9876/mcp'
+const AGENT_MCP_HTTP_URL = 'http://127.0.0.1:9877/mcp'
+const TERMINAL_MCP_HTTP_URL = 'http://127.0.0.1:9878/mcp'
 const MCP_CONFIGS = {
-  browserClaude: `claude mcp add -s user -t sse gittim-browser ${BROWSER_MCP_URL}`,
-  browserCodex: `codex mcp add gittim-browser --url ${BROWSER_MCP_URL}`,
-  agentClaude: `claude mcp add -s user -t sse gittim-agent ${AGENT_MCP_URL}`,
-  agentCodex: `codex mcp add gittim-agent --url ${AGENT_MCP_URL}`,
-  terminalClaude: `claude mcp add -s user -t sse gittim-terminal ${TERMINAL_MCP_URL}`,
-  terminalCodex: `codex mcp add gittim-terminal --url ${TERMINAL_MCP_URL}`
+  browserClaude: `claude mcp add -s user -t sse gittim-browser ${BROWSER_MCP_SSE_URL}`,
+  browserCodex: `codex mcp add gittim-browser --url ${BROWSER_MCP_HTTP_URL}`,
+  agentClaude: `claude mcp add -s user -t sse gittim-agent ${AGENT_MCP_SSE_URL}`,
+  agentCodex: `codex mcp add gittim-agent --url ${AGENT_MCP_HTTP_URL}`,
+  terminalClaude: `claude mcp add -s user -t sse gittim-terminal ${TERMINAL_MCP_SSE_URL}`,
+  terminalCodex: `codex mcp add gittim-terminal --url ${TERMINAL_MCP_HTTP_URL}`
 } as const
 type McpCopyTarget = keyof typeof MCP_CONFIGS
 const mcpCopied = ref<McpCopyTarget | null>(null)

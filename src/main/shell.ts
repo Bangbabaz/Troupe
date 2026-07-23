@@ -260,6 +260,9 @@ export function startPty(webContents: WebContents, opts: PtyStartOpts): void {
     env.GITTIM_AGENT_MCP_URL = `http://127.0.0.1:${AGENT_MCP_PORT}/sse?paneId=${encodeURIComponent(opts.paneId)}`
     env.GITTIM_BROWSER_MCP_URL = `http://127.0.0.1:${BROWSER_MCP_PORT}/sse`
     env.GITTIM_TERMINAL_MCP_URL = `http://127.0.0.1:${TERMINAL_MCP_PORT}/sse?paneId=${encodeURIComponent(opts.paneId)}&token=${terminalMcpToken}`
+    env.GITTIM_AGENT_MCP_HTTP_URL = `http://127.0.0.1:${AGENT_MCP_PORT}/mcp?paneId=${encodeURIComponent(opts.paneId)}`
+    env.GITTIM_BROWSER_MCP_HTTP_URL = `http://127.0.0.1:${BROWSER_MCP_PORT}/mcp`
+    env.GITTIM_TERMINAL_MCP_HTTP_URL = `http://127.0.0.1:${TERMINAL_MCP_PORT}/mcp?paneId=${encodeURIComponent(opts.paneId)}&token=${terminalMcpToken}`
   }
 
   // node-pty's `name` option sets TERM on Unix, but on Windows it only labels

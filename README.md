@@ -59,11 +59,11 @@ Gittim 是一个基于 Electron 和 xterm.js 的跨平台终端应用。它把�
 
 Gittim 内置三个本地 MCP 服务：
 
-| 服务         | 地址                        | 用途                                       |
-| ------------ | --------------------------- | ------------------------------------------ |
-| Browser MCP  | `http://127.0.0.1:9876/sse` | 页面导航、点击、输入、截图和浏览器状态读取 |
-| Agent MCP    | `http://127.0.0.1:9877/sse` | 已注册 Agent 之间的终端唤醒式协作          |
-| Terminal MCP | `http://127.0.0.1:9878/sse` | 经用户授权读取 SSH 输出并执行完整命令      |
+| 服务         | Claude Code (SSE)           | Codex (Streamable HTTP)     | 用途                                       |
+| ------------ | --------------------------- | --------------------------- | ------------------------------------------ |
+| Browser MCP  | `http://127.0.0.1:9876/sse` | `http://127.0.0.1:9876/mcp` | 页面导航、点击、输入、截图和浏览器状态读取 |
+| Agent MCP    | `http://127.0.0.1:9877/sse` | `http://127.0.0.1:9877/mcp` | 已注册 Agent 之间的终端唤醒式协作          |
+| Terminal MCP | `http://127.0.0.1:9878/sse` | `http://127.0.0.1:9878/mcp` | 经用户授权读取 SSH 输出并执行完整命令      |
 
 Claude Code 示例：
 
@@ -76,9 +76,9 @@ claude mcp add -s user -t sse gittim-terminal http://127.0.0.1:9878/sse
 Codex 示例：
 
 ```bash
-codex mcp add gittim-browser --url http://127.0.0.1:9876/sse
-codex mcp add gittim-agent --url http://127.0.0.1:9877/sse
-codex mcp add gittim-terminal --url http://127.0.0.1:9878/sse
+codex mcp add gittim-browser --url http://127.0.0.1:9876/mcp
+codex mcp add gittim-agent --url http://127.0.0.1:9877/mcp
+codex mcp add gittim-terminal --url http://127.0.0.1:9878/mcp
 ```
 
 也可以在 Gittim 的“设置 → MCP”中直接复制对应命令。

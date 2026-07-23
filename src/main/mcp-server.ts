@@ -1,15 +1,20 @@
-// MCP (Model Context Protocol) HTTP Server —— SSE transport。
+// MCP (Model Context Protocol) HTTP Server —— legacy SSE + Streamable HTTP transports。
 //
 // 监听 127.0.0.1 上的可配置端口，提供终端控制与浏览器自动化工具。
 // Agent 通过 shell 环境变量 GITTIM_PANE_ID 获取自己的 paneId，
 // 在每个工具调用中作为 paneId 参数传入，server 据此路由到对应浏览器。
 // 不传 paneId 且仅有一个活跃浏览器时自动匹配（多浏览器时报错提示）。
 //
-// MCP over SSE 协议:
+// MCP over legacy SSE 协议:
 //   1. Client → GET /sse → 服务器返回 SSE 流（无需 ?pane=）
 //   2. Server 先发 `event: endpoint` 告知消息端点 URL
 //   3. Client → POST /message?sessionId=<id> → JSON-RPC 请求
 //   4. Server 通过 SSE 流返回 JSON-RPC response
+//
+// MCP over Streamable HTTP 协议:
+//   1. Client → POST /mcp (initialize) → JSON-RPC response + Mcp-Session-Id
+//   2. 后续 POST /mcp 携带 Mcp-Session-Id → JSON-RPC response
+//   3. Client → DELETE /mcp 携带 Mcp-Session-Id → 关闭会话
 
 import { createServer, type IncomingMessage, type ServerResponse } from 'http'
 import { randomUUID } from 'crypto'
@@ -56,30 +61,53 @@ import type { McpToolDef, McpToolResult } from './mcp-types'
 // ---------------------------------------------------------------------------
 
 /** JSON-RPC 错误码 */
+const ERR_PARSE = -32700
+const ERR_REQUEST = -32600
 const ERR_METHOD = -32601
 const ERR_INVALID = -32602
 const ERR_INTERNAL = -32603
+
+const SUPPORTED_PROTOCOL_VERSIONS = new Set([
+  '2024-11-05',
+  '2025-03-26',
+  '2025-06-18',
+  '2025-11-25'
+])
+const DEFAULT_PROTOCOL_VERSION = '2025-11-25'
 
 // ---------------------------------------------------------------------------
 // 类型
 // ---------------------------------------------------------------------------
 
-interface SseSession {
+interface McpSession {
   id: string
-  res: ServerResponse
   kind: McpServerKind
+  transport: 'sse' | 'http'
   paneId?: string
   accessToken?: string
   agent?: AgentSessionState
+  protocolVersion?: string
+}
+
+interface SseSession extends McpSession {
+  transport: 'sse'
+  res: ServerResponse
 }
 
 type McpServerKind = 'browser' | 'agent' | 'terminal'
 
 interface JsonRpcRequest {
   jsonrpc: '2.0'
-  id?: number | string
+  id?: number | string | null
   method: string
   params?: Record<string, unknown>
+}
+
+interface JsonRpcResponse {
+  jsonrpc: '2.0'
+  id: number | string | null
+  result?: unknown
+  error?: { code: number; message: string }
 }
 
 // ---------------------------------------------------------------------------
@@ -682,6 +710,7 @@ const BROWSER_TOOLS: McpToolDef[] = [
 // ---------------------------------------------------------------------------
 
 const sseSessions = new Map<string, SseSession>()
+const httpSessions = new Map<string, McpSession>()
 const serverInstances = new Map<McpServerKind, ReturnType<typeof createServer>>()
 
 const agentToolHost: AgentToolHost = {
@@ -692,6 +721,10 @@ function getToolsForKind(kind: McpServerKind): McpToolDef[] {
   if (kind === 'browser') return BROWSER_TOOLS
   if (kind === 'agent') return AGENT_TOOLS
   return TERMINAL_TOOLS
+}
+
+function getActiveMcpSessions(): McpSession[] {
+  return [...sseSessions.values(), ...httpSessions.values()]
 }
 
 // ---------------------------------------------------------------------------
@@ -880,12 +913,12 @@ async function performBrowserAction(
 }
 
 async function handleToolCall(
-  session: SseSession,
+  session: McpSession,
   name: string,
   args: Record<string, unknown> | undefined
 ): Promise<McpToolResult> {
   if (isAgentTool(name)) {
-    return handleAgentToolCall(agentToolHost, session, Array.from(sseSessions.values()), name, args)
+    return handleAgentToolCall(agentToolHost, session, getActiveMcpSessions(), name, args)
   }
   if (isTerminalTool(name)) {
     return handleTerminalToolCall(session, name, args)
@@ -1648,100 +1681,114 @@ function sendSseEvent(res: ServerResponse, event: string, data: string): void {
   res.write(`event: ${event}\ndata: ${data}\n\n`)
 }
 
-function sendJsonRpcError(
-  res: ServerResponse,
-  id: number | string | undefined | null,
+function jsonRpcError(
+  id: number | string | null | undefined,
   code: number,
   message: string
-): void {
-  sendSseEvent(
-    res,
-    'message',
-    JSON.stringify({
-      jsonrpc: '2.0',
-      id: id ?? null,
-      error: { code, message }
-    })
-  )
+): JsonRpcResponse {
+  return {
+    jsonrpc: '2.0',
+    id: id ?? null,
+    error: { code, message }
+  }
 }
 
-function sendJsonRpcResult(
-  res: ServerResponse,
-  id: number | string | undefined,
-  result: unknown
-): void {
-  sendSseEvent(
-    res,
-    'message',
-    JSON.stringify({
-      jsonrpc: '2.0',
-      id: id ?? null,
-      result
-    })
-  )
+function jsonRpcResult(id: number | string | null | undefined, result: unknown): JsonRpcResponse {
+  return {
+    jsonrpc: '2.0',
+    id: id ?? null,
+    result
+  }
 }
 
-async function handleJsonRpc(session: SseSession, req: JsonRpcRequest): Promise<void> {
+function sendSseJsonRpc(res: ServerResponse, response: JsonRpcResponse): void {
+  sendSseEvent(res, 'message', JSON.stringify(response))
+}
+
+function negotiateProtocolVersion(
+  params: Record<string, unknown> | undefined,
+  transport: McpSession['transport']
+): string {
+  const requested = params?.protocolVersion
+  if (typeof requested === 'string' && SUPPORTED_PROTOCOL_VERSIONS.has(requested)) {
+    return requested
+  }
+  return transport === 'sse' ? '2024-11-05' : DEFAULT_PROTOCOL_VERSION
+}
+
+function isJsonRpcRequest(value: unknown): value is JsonRpcRequest {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false
+  const rpc = value as Partial<JsonRpcRequest>
+  return rpc.jsonrpc === '2.0' && typeof rpc.method === 'string'
+}
+
+async function handleJsonRpc(
+  session: McpSession,
+  req: JsonRpcRequest
+): Promise<JsonRpcResponse | null> {
   const { id, method, params } = req
+  const isNotification = id === undefined
 
   try {
     switch (method) {
-      case 'initialize':
-        sendJsonRpcResult(session.res, id, {
-          protocolVersion: '2024-11-05',
+      case 'initialize': {
+        if (isNotification) return null
+        const protocolVersion = negotiateProtocolVersion(params, session.transport)
+        session.protocolVersion = protocolVersion
+        return jsonRpcResult(id, {
+          protocolVersion,
           capabilities: { tools: {} },
           serverInfo: {
             name: `gittim-${session.kind}`,
             version: '0.2.0'
           }
         })
-        break
+      }
 
       case 'tools/list':
-        sendJsonRpcResult(session.res, id, { tools: getToolsForKind(session.kind) })
-        break
+        return isNotification ? null : jsonRpcResult(id, { tools: getToolsForKind(session.kind) })
 
       case 'tools/call': {
         const toolName = params?.name as string
         const toolArgs = params?.arguments as Record<string, unknown> | undefined
 
         if (!toolName) {
-          sendJsonRpcError(session.res, id, ERR_INVALID, '缺少 tool name')
-          return
+          return isNotification ? null : jsonRpcError(id, ERR_INVALID, '缺少 tool name')
         }
 
         if (!getToolsForKind(session.kind).some((tool) => tool.name === toolName)) {
-          sendJsonRpcError(
-            session.res,
-            id,
-            ERR_METHOD,
-            `工具不属于 ${session.kind} MCP: ${toolName}`
-          )
-          return
+          return isNotification
+            ? null
+            : jsonRpcError(id, ERR_METHOD, `工具不属于 ${session.kind} MCP: ${toolName}`)
         }
 
         try {
           const result = await handleToolCall(session, toolName, toolArgs)
-          sendJsonRpcResult(session.res, id, result)
+          return isNotification ? null : jsonRpcResult(id, result)
         } catch (e: unknown) {
           const msg = e instanceof Error ? e.message : String(e)
-          sendJsonRpcResult(session.res, id, {
-            content: [{ type: 'text', text: msg }],
-            isError: true
-          })
+          return isNotification
+            ? null
+            : jsonRpcResult(id, {
+                content: [{ type: 'text', text: msg }],
+                isError: true
+              })
         }
-        break
       }
 
       case 'notifications/initialized':
-        break
+      case 'notifications/cancelled':
+        return null
+
+      case 'ping':
+        return isNotification ? null : jsonRpcResult(id, {})
 
       default:
-        sendJsonRpcError(session.res, id, ERR_METHOD, `未知方法: ${method}`)
+        return isNotification ? null : jsonRpcError(id, ERR_METHOD, `未知方法: ${method}`)
     }
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : String(e)
-    sendJsonRpcError(session.res, id, ERR_INTERNAL, msg)
+    return isNotification ? null : jsonRpcError(id, ERR_INTERNAL, msg)
   }
 }
 
@@ -1766,10 +1813,150 @@ function startMcpServer(kind: McpServerKind, port: number): number {
     if (req.method === 'OPTIONS') {
       res.writeHead(204, {
         'Access-Control-Allow-Origin': '*',
-        'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-        'Access-Control-Allow-Headers': 'Content-Type',
+        'Access-Control-Allow-Methods': 'GET, POST, DELETE, OPTIONS',
+        'Access-Control-Allow-Headers':
+          'Content-Type, Accept, Mcp-Session-Id, MCP-Protocol-Version, Authorization',
+        'Access-Control-Expose-Headers': 'Mcp-Session-Id, MCP-Protocol-Version',
         'Access-Control-Max-Age': '86400'
       })
+      res.end()
+      return
+    }
+
+    // POST /mcp —— Streamable HTTP JSON-RPC 请求
+    if (req.method === 'POST' && url.pathname === '/mcp') {
+      let value: unknown
+      try {
+        value = JSON.parse(await readBody(req))
+      } catch {
+        res.writeHead(400, {
+          'Content-Type': 'application/json',
+          'Access-Control-Allow-Origin': '*'
+        })
+        res.end(JSON.stringify(jsonRpcError(null, ERR_PARSE, '无效的 JSON')))
+        return
+      }
+
+      if (!isJsonRpcRequest(value)) {
+        res.writeHead(400, {
+          'Content-Type': 'application/json',
+          'Access-Control-Allow-Origin': '*'
+        })
+        res.end(JSON.stringify(jsonRpcError(null, ERR_REQUEST, '无效的 JSON-RPC 请求')))
+        return
+      }
+
+      if (value.method === 'initialize' && value.id === undefined) {
+        res.writeHead(400, {
+          'Content-Type': 'application/json',
+          'Access-Control-Allow-Origin': '*'
+        })
+        res.end(JSON.stringify(jsonRpcError(null, ERR_REQUEST, 'initialize 必须包含请求 ID')))
+        return
+      }
+
+      const headerSessionId = req.headers['mcp-session-id']
+      const sessionId = Array.isArray(headerSessionId) ? headerSessionId[0] : headerSessionId
+      let session: McpSession
+      let createdSession = false
+
+      if (value.method === 'initialize') {
+        session = {
+          id: randomUUID(),
+          kind,
+          transport: 'http',
+          paneId: url.searchParams.get('paneId') ?? undefined,
+          accessToken: url.searchParams.get('token') ?? undefined
+        }
+        createdSession = true
+      } else {
+        if (!sessionId) {
+          res.writeHead(400, {
+            'Content-Type': 'application/json',
+            'Access-Control-Allow-Origin': '*'
+          })
+          res.end(JSON.stringify(jsonRpcError(value.id, ERR_REQUEST, '缺少 Mcp-Session-Id')))
+          return
+        }
+
+        const existingSession = httpSessions.get(sessionId)
+        if (!existingSession || existingSession.kind !== kind) {
+          res.writeHead(404, {
+            'Content-Type': 'application/json',
+            'Access-Control-Allow-Origin': '*'
+          })
+          res.end(JSON.stringify(jsonRpcError(value.id, ERR_REQUEST, '未知或已过期的 session')))
+          return
+        }
+        session = existingSession
+
+        const protocolHeader = req.headers['mcp-protocol-version']
+        const protocolVersion = Array.isArray(protocolHeader) ? protocolHeader[0] : protocolHeader
+        if (
+          protocolVersion &&
+          session.protocolVersion &&
+          protocolVersion !== session.protocolVersion
+        ) {
+          res.writeHead(400, {
+            'Content-Type': 'application/json',
+            'Access-Control-Allow-Origin': '*'
+          })
+          res.end(JSON.stringify(jsonRpcError(value.id, ERR_REQUEST, 'MCP 协议版本不匹配')))
+          return
+        }
+      }
+
+      const response = await handleJsonRpc(session, value)
+      if (createdSession) httpSessions.set(session.id, session)
+
+      if (!response) {
+        res.writeHead(202, {
+          'Access-Control-Allow-Origin': '*',
+          ...(createdSession ? { 'Mcp-Session-Id': session.id } : {})
+        })
+        res.end()
+        return
+      }
+
+      res.writeHead(200, {
+        'Content-Type': 'application/json',
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Expose-Headers': 'Mcp-Session-Id, MCP-Protocol-Version',
+        ...(createdSession ? { 'Mcp-Session-Id': session.id } : {}),
+        ...(session.protocolVersion ? { 'MCP-Protocol-Version': session.protocolVersion } : {})
+      })
+      res.end(JSON.stringify(response))
+      return
+    }
+
+    // Gittim 当前没有服务端主动消息，因此不为 Streamable HTTP 建立独立 SSE 流。
+    if (req.method === 'GET' && url.pathname === '/mcp') {
+      res.writeHead(405, {
+        Allow: 'POST, DELETE',
+        'Content-Type': 'text/plain',
+        'Access-Control-Allow-Origin': '*'
+      })
+      res.end('Method Not Allowed')
+      return
+    }
+
+    // DELETE /mcp —— 关闭 Streamable HTTP 会话
+    if (req.method === 'DELETE' && url.pathname === '/mcp') {
+      const headerSessionId = req.headers['mcp-session-id']
+      const sessionId = Array.isArray(headerSessionId) ? headerSessionId[0] : headerSessionId
+      if (!sessionId) {
+        res.writeHead(400, { 'Content-Type': 'text/plain', 'Access-Control-Allow-Origin': '*' })
+        res.end('缺少 Mcp-Session-Id')
+        return
+      }
+      const session = httpSessions.get(sessionId)
+      if (!session || session.kind !== kind) {
+        res.writeHead(404, { 'Content-Type': 'text/plain', 'Access-Control-Allow-Origin': '*' })
+        res.end('未知或已过期的 session')
+        return
+      }
+      httpSessions.delete(sessionId)
+      res.writeHead(204, { 'Access-Control-Allow-Origin': '*' })
       res.end()
       return
     }
@@ -1781,7 +1968,14 @@ function startMcpServer(kind: McpServerKind, port: number): number {
 
       const paneId = url.searchParams.get('paneId') ?? undefined
       const accessToken = url.searchParams.get('token') ?? undefined
-      const session: SseSession = { id: sessionId, res, kind, paneId, accessToken }
+      const session: SseSession = {
+        id: sessionId,
+        res,
+        kind,
+        transport: 'sse',
+        paneId,
+        accessToken
+      }
       sseSessions.set(sessionId, session)
 
       const messageUrl = `http://${MCP_HOST}:${port}/message?sessionId=${sessionId}`
@@ -1812,11 +2006,13 @@ function startMcpServer(kind: McpServerKind, port: number): number {
 
       try {
         const raw = await readBody(req)
-        const rpc = JSON.parse(raw) as JsonRpcRequest
+        const value = JSON.parse(raw) as unknown
+        if (!isJsonRpcRequest(value)) throw new Error('invalid JSON-RPC request')
         res.writeHead(202, { 'Content-Type': 'text/plain' })
         res.end('Accepted')
 
-        await handleJsonRpc(session, rpc)
+        const response = await handleJsonRpc(session, value)
+        if (response) sendSseJsonRpc(session.res, response)
       } catch {
         res.writeHead(400, { 'Content-Type': 'text/plain' })
         res.end('无效的 JSON-RPC 请求')
@@ -1830,7 +2026,7 @@ function startMcpServer(kind: McpServerKind, port: number): number {
   })
 
   server.listen(port, MCP_HOST, () => {
-    console.log(`[mcp] ${kind} MCP server listening on http://${MCP_HOST}:${port}/sse`)
+    console.log(`[mcp] ${kind} MCP server listening on http://${MCP_HOST}:${port}/sse and /mcp`)
   })
 
   serverInstances.set(kind, server)
@@ -1852,6 +2048,7 @@ export function stopMcpServers(): void {
     }
   }
   sseSessions.clear()
+  httpSessions.clear()
   clearAgentState()
 
   for (const server of serverInstances.values()) {
