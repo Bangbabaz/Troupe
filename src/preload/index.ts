@@ -240,6 +240,8 @@ const api = {
       paneId,
       config
     ) as Promise<BrowserResourceProxyConfig>,
+  browserSetResourceProxyOrigin: (paneId: string, url: string) =>
+    ipcRenderer.invoke('browser-resource-proxy-origin-set', paneId, url) as Promise<void>,
   browserGetMcpUrl: (paneId: string) =>
     ipcRenderer.invoke('browser-get-mcp-url', paneId) as Promise<string>,
   agentGetMcpUrl: () => ipcRenderer.invoke('agent-get-mcp-url') as Promise<string>,

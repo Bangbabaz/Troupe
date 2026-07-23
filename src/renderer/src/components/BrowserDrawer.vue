@@ -29,7 +29,7 @@
       <button
         class="browser-nav-btn"
         :class="{ 'is-active': proxyPanelOpen, 'has-proxy': proxyApplied }"
-        title="资源代理"
+        title="CSS / JS 资源代理"
         @click="toggleProxyPanel"
       >
         <Network :size="13" />
@@ -44,7 +44,7 @@
 
     <div v-if="proxyPanelOpen" class="browser-proxy-panel">
       <div class="browser-proxy-heading">
-        <span>资源代理</span>
+        <span>CSS / JS 资源代理</span>
         <div class="browser-proxy-heading-actions">
           <div class="browser-proxy-inline-switch">
             <span>启用</span>
@@ -84,7 +84,7 @@
             <input
               v-model.trim="rule.pathPrefix"
               type="text"
-              placeholder="/api/"
+              placeholder="/assets/"
               spellcheck="false"
               @keydown.enter="applyProxyConfig"
             />
@@ -272,7 +272,7 @@ function getWebview(): HTMLElement & {
   goBack(): void
   goForward(): void
   reload(): void
-  loadURL(url: string): void
+  loadURL(url: string): Promise<void>
   getURL(): string
   canGoBack(): boolean
   canGoForward(): boolean
@@ -291,9 +291,16 @@ function goForward(): void {
   if (wv) wv.goForward()
 }
 
-function reload(): void {
+async function reload(): Promise<void> {
   const wv = getWebview()
-  if (wv) wv.reload()
+  if (!wv) return
+
+  try {
+    await window.api.browserSetResourceProxyOrigin(props.paneId, wv.getURL())
+    wv.reload()
+  } catch (error) {
+    proxyError.value = error instanceof Error ? error.message : String(error)
+  }
 }
 
 function toggleProxyPanel(): void {
@@ -318,7 +325,7 @@ async function applyProxyConfig(): Promise<void> {
     Object.assign(proxyDraft, applied)
     proxyApplied.value = applied.enabled
     localStorage.setItem(proxyStorageKey, JSON.stringify(applied))
-    getWebview().reload()
+    await reload()
   } catch (error) {
     proxyError.value = error instanceof Error ? error.message : String(error)
   } finally {
@@ -326,11 +333,20 @@ async function applyProxyConfig(): Promise<void> {
   }
 }
 
-function navigateToUrl(): void {
+async function navigateToUrl(): Promise<void> {
   const input = urlInputRef.value?.value
   if (input) {
     const wv = getWebview()
-    if (wv) wv.loadURL(input)
+    if (!wv) return
+
+    try {
+      await window.api.browserSetResourceProxyOrigin(props.paneId, input)
+      await wv.loadURL(input)
+    } catch (error) {
+      if (!String(error).includes('ERR_ABORTED')) {
+        console.error('[BrowserDrawer] 导航失败:', error)
+      }
+    }
   }
 }
 

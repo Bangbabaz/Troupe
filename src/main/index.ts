@@ -82,7 +82,8 @@ import {
   unregisterBrowser,
   disposeAllBrowsers,
   getBrowserResourceProxyConfig,
-  setBrowserResourceProxyConfig
+  setBrowserResourceProxyConfig,
+  setBrowserResourceProxyOrigin
 } from './browser'
 import {
   startMcpServers,
@@ -736,6 +737,9 @@ app.whenReady().then(() => {
       return setBrowserResourceProxyConfig(paneId, config)
     }
   )
+  ipcMain.handle('browser-resource-proxy-origin-set', (_event, paneId: string, url: string) => {
+    setBrowserResourceProxyOrigin(paneId, url)
+  })
   ipcMain.handle('browser-get-mcp-url', () => {
     return `http://127.0.0.1:${getBrowserMcpPort()}/sse`
   })

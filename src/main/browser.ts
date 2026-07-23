@@ -69,7 +69,8 @@ interface BrowserSession {
   routeRules: BrowserRouteRule[]
   resourceProxy: BrowserResourceProxyConfig
   resourceProxyOrigin: string | null
-  mainFrameId?: string
+  currentPageOrigin: string | null
+  mainFrameId: string | null
   downloads: DownloadEntry[]
 }
 
@@ -77,6 +78,18 @@ const sessions = new Map<string, BrowserSession>()
 const resourceProxyConfigs = new Map<string, BrowserResourceProxyConfig>()
 const NETWORK_BUFFER_MAX = 200
 const PROXY_REQUEST_TIMEOUT_MS = 5000
+const JAVASCRIPT_MIME_TYPES = new Set([
+  'application/ecmascript',
+  'application/javascript',
+  'application/x-ecmascript',
+  'application/x-javascript',
+  'text/ecmascript',
+  'text/javascript',
+  'text/jscript',
+  'text/livescript',
+  'text/x-ecmascript',
+  'text/x-javascript'
+])
 const DEFAULT_RESOURCE_PROXY_CONFIG: BrowserResourceProxyConfig = {
   enabled: false,
   localPort: 5173,
@@ -160,8 +173,15 @@ function normalizeResourceProxyPathRule(
 
 async function refreshFetchInterception(session: BrowserSession): Promise<void> {
   if (session.routeRules.length > 0 || session.resourceProxy.enabled) {
+    const patterns =
+      session.routeRules.length > 0
+        ? [{ urlPattern: '*', requestStage: 'Request' }]
+        : [
+            { urlPattern: '*', resourceType: 'Script', requestStage: 'Request' },
+            { urlPattern: '*', resourceType: 'Stylesheet', requestStage: 'Request' }
+          ]
     await executeCdp(session.paneId, 'Fetch.enable', {
-      patterns: [{ urlPattern: '*', requestStage: 'Request' }]
+      patterns
     })
   } else {
     await executeCdp(session.paneId, 'Fetch.disable')
@@ -194,6 +214,8 @@ export function registerBrowser(paneId: string, wcId: number): void {
 
   wc.debugger.attach('1.3')
 
+  const initialOrigin = getHttpOrigin(wc.getURL())
+
   const session: BrowserSession = {
     paneId,
     webContentsId: wcId,
@@ -205,12 +227,24 @@ export function registerBrowser(paneId: string, wcId: number): void {
     resourceProxy: cloneResourceProxyConfig(
       resourceProxyConfigs.get(paneId) ?? DEFAULT_RESOURCE_PROXY_CONFIG
     ),
-    resourceProxyOrigin: getHttpOrigin(wc.getURL()),
+    resourceProxyOrigin: initialOrigin,
+    currentPageOrigin: initialOrigin,
+    mainFrameId: null,
     downloads: []
   }
 
   void wc.debugger.sendCommand('Network.enable').catch(() => {})
-  void wc.debugger.sendCommand('Page.enable').catch(() => {})
+  void wc.debugger
+    .sendCommand('Page.enable')
+    .then(() => wc.debugger.sendCommand('Page.getFrameTree'))
+    .then((result) => {
+      if (sessions.get(paneId) !== session) return
+      const frame = (result as { frameTree: { frame: { id: string; url: string } } }).frameTree
+        .frame
+      session.mainFrameId = frame.id
+      session.currentPageOrigin = getHttpOrigin(frame.url)
+    })
+    .catch(() => {})
   void wc.debugger.sendCommand('Runtime.enable').catch(() => {})
   void wc.debugger
     .sendCommand('Browser.setDownloadBehavior', {
@@ -279,7 +313,7 @@ export function registerBrowser(paneId: string, wcId: number): void {
       const p = params as { frame: { id: string; parentId?: string; url: string } }
       if (!p.frame.parentId) {
         session.mainFrameId = p.frame.id
-        session.resourceProxyOrigin = getHttpOrigin(p.frame.url) ?? session.resourceProxyOrigin
+        session.currentPageOrigin = getHttpOrigin(p.frame.url)
       }
     } else if (method === 'Page.javascriptDialogOpening') {
       // Dialog 监听
@@ -529,11 +563,15 @@ export async function setBrowserResourceProxyConfig(
   const session = sessions.get(paneId)
   if (session) {
     session.resourceProxy = cloneResourceProxyConfig(config)
-    const wc = wcForSession(session)
-    session.resourceProxyOrigin = (wc && getHttpOrigin(wc.getURL())) ?? session.resourceProxyOrigin
     await refreshFetchInterception(session)
   }
   return cloneResourceProxyConfig(config)
+}
+
+export function setBrowserResourceProxyOrigin(paneId: string, url: string): void {
+  const session = sessions.get(paneId)
+  if (!session) throw new Error(`Browser session not found: ${paneId}`)
+  session.resourceProxyOrigin = getHttpOrigin(url)
 }
 
 interface FetchRequestPausedParams {
@@ -551,14 +589,6 @@ async function handleRouteRequest(
   session: BrowserSession,
   params: FetchRequestPausedParams
 ): Promise<void> {
-  if (
-    session.resourceProxy.enabled &&
-    params.resourceType === 'Document' &&
-    (!session.mainFrameId || params.frameId === session.mainFrameId)
-  ) {
-    session.resourceProxyOrigin = getHttpOrigin(params.request.url) ?? session.resourceProxyOrigin
-  }
-
   const rule = session.routeRules.find((r) =>
     routeMatches(r, params.request.url, params.request.method)
   )
@@ -603,12 +633,8 @@ async function handleRouteRequest(
   }
 }
 
-function getLocalProxyUrl(
-  config: BrowserResourceProxyConfig,
-  remoteOrigin: string | null,
-  requestUrl: string
-): string | null {
-  if (!config.enabled || !remoteOrigin) return null
+function getLocalProxyUrl(config: BrowserResourceProxyConfig, requestUrl: string): string | null {
+  if (!config.enabled) return null
 
   let request: URL
   try {
@@ -616,7 +642,7 @@ function getLocalProxyUrl(
   } catch {
     return null
   }
-  if (request.origin !== remoteOrigin) return null
+  if (request.protocol !== 'http:' && request.protocol !== 'https:') return null
 
   const matchingRule = config.rules
     .filter((rule) => pathPrefixMatches(request.pathname, rule.pathPrefix))
@@ -624,7 +650,11 @@ function getLocalProxyUrl(
   const action = matchingRule?.action ?? config.defaultAction
   if (action === 'bypass') return null
 
-  const local = new URL(request.pathname, `http://127.0.0.1:${config.localPort}/`)
+  const remoteFileName = request.pathname.slice(request.pathname.lastIndexOf('/') + 1)
+  if (!remoteFileName) return null
+
+  const localFileName = remoteFileName.replace(/[._-][a-f\d]{8,}(?=\.[^./]+$)/i, '')
+  const local = new URL(`/${localFileName}`, `http://127.0.0.1:${config.localPort}/`)
   local.search = request.search
   return local.toString()
 }
@@ -637,15 +667,24 @@ async function proxyResourceRequest(
   session: BrowserSession,
   params: FetchRequestPausedParams
 ): Promise<boolean> {
-  if (params.request.method !== 'GET' && params.request.method !== 'HEAD') {
+  if (
+    !session.resourceProxy.enabled ||
+    !session.resourceProxyOrigin ||
+    session.currentPageOrigin !== session.resourceProxyOrigin
+  ) {
+    return false
+  }
+  if (params.resourceType !== 'Script' && params.resourceType !== 'Stylesheet') {
+    return false
+  }
+  if (params.frameId !== session.mainFrameId) return false
+
+  const requestMethod = params.request.method.toUpperCase()
+  if (requestMethod !== 'GET' && requestMethod !== 'HEAD') {
     return false
   }
 
-  const localUrl = getLocalProxyUrl(
-    session.resourceProxy,
-    session.resourceProxyOrigin,
-    params.request.url
-  )
+  const localUrl = getLocalProxyUrl(session.resourceProxy, params.request.url)
   if (!localUrl) return false
 
   const forwardedHeaders: Record<string, string> = {}
@@ -659,7 +698,7 @@ async function proxyResourceRequest(
   let response: Response
   try {
     response = await net.fetch(localUrl, {
-      method: params.request.method,
+      method: requestMethod,
       headers: forwardedHeaders,
       signal: AbortSignal.timeout(PROXY_REQUEST_TIMEOUT_MS)
     })
@@ -675,7 +714,30 @@ async function proxyResourceRequest(
     })
     return true
   }
-  if (session.resourceProxy.fallbackToRemote && response.status >= 400) return false
+  const contentType = response.headers.get('content-type')
+  const mimeType = contentType?.split(';', 1)[0].trim().toLowerCase() ?? ''
+  const mimeTypeMatches =
+    params.resourceType === 'Stylesheet'
+      ? mimeType === 'text/css'
+      : JAVASCRIPT_MIME_TYPES.has(mimeType)
+  if (session.resourceProxy.fallbackToRemote && (response.status >= 400 || !mimeTypeMatches)) {
+    return false
+  }
+  if (!mimeTypeMatches) {
+    await executeCdp(session.paneId, 'Fetch.fulfillRequest', {
+      requestId: params.requestId,
+      responseCode: 502,
+      responsePhrase: 'Invalid local resource MIME type',
+      responseHeaders: [{ name: 'content-type', value: 'text/plain; charset=utf-8' }],
+      body:
+        requestMethod === 'HEAD'
+          ? ''
+          : Buffer.from(
+              `本地资源代理 MIME 类型不匹配：${contentType || '未提供 Content-Type'}`
+            ).toString('base64')
+    })
+    return true
+  }
 
   const blockedResponseHeaders = new Set([
     'connection',
@@ -694,9 +756,7 @@ async function proxyResourceRequest(
   responseHeaders.push({ name: 'cache-control', value: 'no-store' })
 
   const body =
-    params.request.method === 'HEAD'
-      ? ''
-      : Buffer.from(await response.arrayBuffer()).toString('base64')
+    requestMethod === 'HEAD' ? '' : Buffer.from(await response.arrayBuffer()).toString('base64')
   await executeCdp(session.paneId, 'Fetch.fulfillRequest', {
     requestId: params.requestId,
     responseCode: response.status,
