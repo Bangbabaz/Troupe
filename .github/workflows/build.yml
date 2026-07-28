@@ -2,6 +2,7 @@ name: Build & Release
 on:
   push:
     tags: ['v*']
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -42,7 +43,7 @@ jobs:
           HF_MIRROR: hf-mirror.com
 
       - name: Build & Publish
-        run: yarn build:${{ matrix.platform }}
+        run: yarn build:${{ matrix.platform }} --publish always
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           HF_MIRROR: hf-mirror.com

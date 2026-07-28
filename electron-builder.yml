@@ -52,10 +52,12 @@ snap:
     provider: github
     owner: Bangbabaz
     repo: Troupe
+    releaseType: release
 npmRebuild: false
 publish:
   provider: github
   owner: Bangbabaz
   repo: Troupe
+  releaseType: release
 electronDownload:
   mirror: https://npmmirror.com/mirrors/electron/
