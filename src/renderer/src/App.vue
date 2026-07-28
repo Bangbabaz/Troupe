@@ -15,11 +15,13 @@ import {
   ListChecks,
   Zap,
   PanelLeft,
+  Plus,
   Server,
   ShieldCheck,
   Trash2,
   FolderGit2
 } from 'lucide-vue-next'
+import { ElMessage } from 'element-plus'
 import TerminalView from './components/Terminal.vue'
 import TasksDrawer from './components/TasksDrawer.vue'
 import AgentSessionsDrawer from './components/AgentSessionsDrawer.vue'
@@ -72,6 +74,7 @@ const sshProfiles = ref<SshProfile[]>([])
 const sshDirectoryPermissions = ref<Record<string, SshDirectoryPolicy>>({})
 const sshCommandPermissions = ref<SshCommandPermission[]>([])
 const showSshDialog = ref(false)
+const sshConnecting = ref(false)
 const sshDraft = ref<SshProfile>({
   id: '',
   name: '',
@@ -354,6 +357,16 @@ const {
 
 const makeSshProfileId = (): string => `ssh-${Date.now().toString(36)}`
 
+const makeSshDraft = (): SshProfile => ({
+  id: makeSshProfileId(),
+  name: '',
+  host: '',
+  port: 22,
+  username: '',
+  password: '',
+  remoteCwd: ''
+})
+
 const sshProfileById = (id: string | undefined): SshProfile | null =>
   id ? sshProfiles.value.find((profile) => profile.id === id) || null : null
 
@@ -369,19 +382,14 @@ const paneSshProfileId = (paneId: string): string => {
 }
 
 const openSshDialog = (): void => {
-  const first = sshProfiles.value[0]
-  sshDraft.value = first
-    ? { ...first }
-    : {
-        id: makeSshProfileId(),
-        name: '',
-        host: '',
-        port: 22,
-        username: '',
-        password: '',
-        remoteCwd: ''
-      }
+  const activeProfile = activeId.value ? sshProfileById(paneSshProfileId(activeId.value)) : null
+  const selected = activeProfile || sshProfiles.value[0]
+  sshDraft.value = selected ? { ...selected, password: '' } : makeSshDraft()
   showSshDialog.value = true
+}
+
+const createSshProfile = (): void => {
+  sshDraft.value = makeSshDraft()
 }
 
 const useSshProfile = (profile: SshProfile): void => {
@@ -389,44 +397,47 @@ const useSshProfile = (profile: SshProfile): void => {
 }
 
 const connectSsh = async (): Promise<void> => {
-  const draft = {
-    ...sshDraft.value,
-    id: sshDraft.value.id || makeSshProfileId(),
-    port: Number(sshDraft.value.port) || 22,
-    name:
-      sshDraft.value.name.trim() ||
-      `${sshDraft.value.username.trim()}@${sshDraft.value.host.trim()}`
-  }
-  const saved = await window.api.sshProfileSave(draft)
-  const list = await window.api.sshProfilesList()
-  sshProfiles.value = list
+  if (sshConnecting.value) return
+  sshConnecting.value = true
+  try {
+    const draft = {
+      ...sshDraft.value,
+      id: sshDraft.value.id || makeSshProfileId(),
+      port: Number(sshDraft.value.port) || 22,
+      name:
+        sshDraft.value.name.trim() ||
+        `${sshDraft.value.username.trim()}@${sshDraft.value.host.trim()}`
+    }
+    const saved = await window.api.sshProfileSave(draft)
+    sshProfiles.value = await window.api.sshProfilesList()
 
-  const from = activeId.value || layoutResult.value.panes[0]?.id || null
-  if (!from) return
-  const newId = onSplit(from, 'row', paneCwdFor(from)) || onSplit(from, 'column', paneCwdFor(from))
-  if (!newId) return
-  const targetId = newId
-  paneTerminalState.value = {
-    ...paneTerminalState.value,
-    [targetId]: { kind: 'ssh', profileId: saved.id }
+    const from = activeId.value || layoutResult.value.panes[0]?.id || null
+    if (!from) return
+    const newId =
+      onSplit(from, 'row', paneCwdFor(from)) || onSplit(from, 'column', paneCwdFor(from))
+    if (!newId) {
+      ElMessage.warning('当前面板空间不足，连接信息已保存')
+      return
+    }
+    paneTerminalState.value = {
+      ...paneTerminalState.value,
+      [newId]: { kind: 'ssh', profileId: saved.id }
+    }
+    setActive(newId)
+    showSshDialog.value = false
+  } catch (err) {
+    ElMessage.error(err instanceof Error ? err.message : String(err))
+  } finally {
+    sshConnecting.value = false
   }
-  setActive(targetId)
-  showSshDialog.value = false
 }
 
 const deleteSshProfile = async (profileId: string): Promise<void> => {
   await window.api.sshProfileDelete(profileId)
   sshProfiles.value = await window.api.sshProfilesList()
   if (sshDraft.value.id === profileId) {
-    sshDraft.value = {
-      id: makeSshProfileId(),
-      name: '',
-      host: '',
-      port: 22,
-      username: '',
-      password: '',
-      remoteCwd: ''
-    }
+    const next = sshProfiles.value[0]
+    sshDraft.value = next ? { ...next, password: '' } : makeSshDraft()
   }
 }
 
@@ -1459,70 +1470,91 @@ onUnmounted(() => {
     :scope-cwd="taskMgrScopeCwd"
     :new-draft="taskMgrNewDraft"
   />
-  <el-dialog v-model="showSshDialog" title="SSH 远程终端" width="520px" class="ssh-dialog">
-    <div v-if="sshProfiles.length" class="ssh-profile-list">
-      <button
-        v-for="profile in sshProfiles"
-        :key="profile.id"
-        class="ssh-profile-chip"
-        :class="{ active: sshDraft.id === profile.id }"
-        @click="useSshProfile(profile)"
-      >
-        <Server :size="13" />
-        <span>{{ profile.name || `${profile.username}@${profile.host}` }}</span>
-      </button>
-      <button
-        v-if="sshDraft.id"
-        class="ssh-profile-delete"
-        title="删除当前连接"
-        @click="deleteSshProfile(sshDraft.id)"
-      >
-        ×
-      </button>
+  <el-dialog v-model="showSshDialog" title="SSH 远程终端" width="680px" class="ssh-dialog">
+    <div class="ssh-dialog-content">
+      <aside class="ssh-profile-panel">
+        <div class="ssh-profile-heading">
+          <span>已保存连接</span>
+          <button class="ssh-profile-create" title="新建连接" @click="createSshProfile">
+            <Plus :size="14" />
+          </button>
+        </div>
+        <div class="ssh-profile-list">
+          <button
+            v-for="profile in sshProfiles"
+            :key="profile.id"
+            class="ssh-profile-item"
+            :class="{ active: sshDraft.id === profile.id }"
+            @click="useSshProfile(profile)"
+          >
+            <Server :size="14" />
+            <span class="ssh-profile-details">
+              <strong>{{ profile.name || `${profile.username}@${profile.host}` }}</strong>
+              <small>{{ profile.username }}@{{ profile.host }}:{{ profile.port }}</small>
+            </span>
+          </button>
+          <div v-if="!sshProfiles.length" class="ssh-profile-empty">暂无已保存连接</div>
+        </div>
+      </aside>
+      <div class="ssh-profile-editor">
+        <div class="ssh-profile-editor-heading">
+          <span>{{
+            sshProfiles.some((profile) => profile.id === sshDraft.id) ? '编辑连接' : '新建连接'
+          }}</span>
+          <button
+            v-if="sshProfiles.some((profile) => profile.id === sshDraft.id)"
+            class="ssh-profile-delete"
+            title="删除当前连接"
+            @click="deleteSshProfile(sshDraft.id)"
+          >
+            <Trash2 :size="14" />
+          </button>
+        </div>
+        <el-form label-position="top" class="ssh-form" @submit.prevent>
+          <el-form-item label="名称">
+            <el-input v-model="sshDraft.name" placeholder="生产机 / 测试机" />
+          </el-form-item>
+          <div class="ssh-form-grid">
+            <el-form-item label="Host">
+              <el-input v-model="sshDraft.host" placeholder="example.com" />
+            </el-form-item>
+            <el-form-item label="Port">
+              <el-input-number
+                v-model="sshDraft.port"
+                :min="1"
+                :max="65535"
+                controls-position="right"
+              />
+            </el-form-item>
+          </div>
+          <div class="ssh-form-grid ssh-credentials-grid">
+            <el-form-item label="Username">
+              <el-input v-model="sshDraft.username" placeholder="root / ubuntu / deploy" />
+            </el-form-item>
+            <el-form-item label="Password">
+              <el-input
+                v-model="sshDraft.password"
+                type="password"
+                show-password
+                :placeholder="sshDraft.hasPassword ? '使用已保存密码' : '可选'"
+              />
+            </el-form-item>
+          </div>
+          <el-form-item label="远程目录">
+            <el-input v-model="sshDraft.remoteCwd" placeholder="可选，如 /srv/app" />
+          </el-form-item>
+        </el-form>
+      </div>
     </div>
-    <el-form label-position="top" class="ssh-form" @submit.prevent>
-      <el-form-item label="名称">
-        <el-input v-model="sshDraft.name" placeholder="生产机 / 测试机" />
-      </el-form-item>
-      <div class="ssh-form-grid">
-        <el-form-item label="Host">
-          <el-input v-model="sshDraft.host" placeholder="example.com" />
-        </el-form-item>
-        <el-form-item label="Port">
-          <el-input-number
-            v-model="sshDraft.port"
-            :min="1"
-            :max="65535"
-            controls-position="right"
-          />
-        </el-form-item>
-      </div>
-      <div class="ssh-form-grid ssh-credentials-grid">
-        <el-form-item label="Username">
-          <el-input v-model="sshDraft.username" placeholder="root / ubuntu / deploy" />
-        </el-form-item>
-        <el-form-item label="Password">
-          <el-input
-            v-model="sshDraft.password"
-            type="password"
-            show-password
-            :placeholder="sshDraft.hasPassword ? '使用已保存密码' : '可选'"
-          />
-        </el-form-item>
-      </div>
-      <el-form-item label="远程目录">
-        <el-input v-model="sshDraft.remoteCwd" placeholder="可选，如 /srv/app" />
-      </el-form-item>
-    </el-form>
     <template #footer>
       <div class="ssh-dialog-actions">
         <button class="dialog-secondary-btn" @click="showSshDialog = false">取消</button>
         <button
           class="dialog-primary-btn"
-          :disabled="!sshDraft.host.trim() || !sshDraft.username.trim()"
+          :disabled="sshConnecting || !sshDraft.host.trim() || !sshDraft.username.trim()"
           @click="connectSsh"
         >
-          连接
+          {{ sshConnecting ? '连接中...' : '连接' }}
         </button>
       </div>
     </template>
@@ -2399,8 +2431,57 @@ onUnmounted(() => {
   }
 
   .el-dialog__body {
-    padding: 20px 22px 18px;
+    padding: 0;
   }
+}
+
+.ssh-dialog-content {
+  display: grid;
+  grid-template-columns: 210px minmax(0, 1fr);
+  min-height: 370px;
+  border-top: 1px solid var(--el-border-color-light);
+  border-bottom: 1px solid var(--el-border-color-light);
+}
+
+.ssh-profile-panel {
+  min-width: 0;
+  padding: 16px 10px;
+  border-right: 1px solid var(--el-border-color-light);
+  background: var(--el-fill-color-lighter);
+}
+
+.ssh-profile-heading,
+.ssh-profile-editor-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 28px;
+  color: var(--el-text-color-secondary);
+  font-size: 11px;
+  font-weight: 600;
+  @include ui-font;
+}
+
+.ssh-profile-heading {
+  padding: 0 6px 8px;
+}
+
+.ssh-profile-create,
+.ssh-profile-delete {
+  @include btn-reset;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: $radius;
+  color: var(--el-text-color-secondary);
+  cursor: pointer;
+}
+
+.ssh-profile-create:hover {
+  color: var(--el-color-primary);
+  background: color-mix(in srgb, var(--el-color-primary) 8%, transparent);
 }
 
 .ssh-dialog-actions {
@@ -2411,60 +2492,87 @@ onUnmounted(() => {
 
 .ssh-profile-list {
   display: flex;
-  align-items: center;
+  flex-direction: column;
   gap: 6px;
-  flex-wrap: wrap;
-  margin: -4px 0 20px;
-  padding-bottom: 14px;
-  border-bottom: 1px solid var(--el-border-color-light);
+  max-height: 330px;
+  overflow-y: auto;
 }
 
-.ssh-profile-chip,
-.ssh-profile-delete,
+.ssh-profile-item,
 .dialog-secondary-btn,
 .dialog-primary-btn {
   @include btn-reset;
 }
 
-.ssh-profile-chip {
-  display: inline-flex;
+.ssh-profile-item {
+  display: flex;
   align-items: center;
-  gap: 5px;
-  max-width: 180px;
-  height: 26px;
-  padding: 0 9px;
-  border: 1px solid var(--el-border-color);
+  gap: 8px;
+  width: 100%;
+  min-height: 48px;
+  padding: 7px 9px;
+  border: 1px solid transparent;
   border-radius: $radius;
   color: var(--el-text-color-primary);
-  background: var(--el-fill-color-blank);
+  background: transparent;
   font-size: 12px;
+  text-align: left;
   cursor: pointer;
   @include ui-font;
 
-  span {
-    min-width: 0;
+  &:hover,
+  &.active {
+    border-color: var(--el-color-primary);
+    background: color-mix(in srgb, var(--el-color-primary) 8%, transparent);
+  }
+
+  &.active > svg {
+    color: var(--el-color-primary);
+  }
+}
+
+.ssh-profile-details {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  flex-direction: column;
+  gap: 2px;
+
+  strong,
+  small {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
 
-  &:hover,
-  &.active {
-    color: var(--el-color-primary);
-    border-color: var(--el-color-primary);
-    background: color-mix(in srgb, var(--el-color-primary) 8%, transparent);
+  strong {
+    font-size: 12px;
+    font-weight: 600;
+  }
+
+  small {
+    color: var(--el-text-color-secondary);
+    font-size: 10px;
   }
 }
 
-.ssh-profile-delete {
-  width: 26px;
-  height: 26px;
-  border-radius: $radius;
-  color: var(--el-text-color-secondary);
-  font-size: 16px;
-  cursor: pointer;
+.ssh-profile-empty {
+  padding: 18px 6px;
+  color: var(--el-text-color-placeholder);
+  font-size: 11px;
+  text-align: center;
+  @include ui-font;
+}
 
-  &:hover {
+.ssh-profile-editor {
+  min-width: 0;
+  padding: 16px 22px 6px;
+}
+
+.ssh-profile-editor-heading {
+  margin-bottom: 10px;
+
+  .ssh-profile-delete:hover {
     color: var(--el-color-danger);
     background: color-mix(in srgb, var(--el-color-danger) 8%, transparent);
   }
