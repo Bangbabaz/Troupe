@@ -1,24 +1,22 @@
+/* eslint-disable @typescript-eslint/no-require-imports, @typescript-eslint/explicit-function-return-type */
 const assert = require('node:assert/strict')
 const fs = require('node:fs')
 const path = require('node:path')
 const ts = require('typescript')
 
-const sourcePath = path.join(
-  __dirname,
-  '..',
-  'src',
-  'renderer',
-  'src',
-  'utils',
-  'terminalKeyboard.ts'
-)
-const source = fs.readFileSync(sourcePath, 'utf8')
-const compiled = ts.transpileModule(source, {
-  compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 }
-}).outputText
-const loaded = { exports: {} }
-new Function('exports', 'module', compiled)(loaded.exports, loaded)
-const { TerminalInputHandler } = loaded.exports
+function loadTypeScript(relativePath) {
+  const source = fs.readFileSync(path.join(__dirname, '..', relativePath), 'utf8')
+  const compiled = ts.transpileModule(source, {
+    compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 }
+  }).outputText
+  const loaded = { exports: {} }
+  new Function('exports', 'module', compiled)(loaded.exports, loaded)
+  return loaded.exports
+}
+
+const { TerminalInputHandler } = loadTypeScript('src/renderer/src/utils/terminalKeyboard.ts')
+const { createShortcutDefs, eventToShortcut, shortcutDisplayParts, shortcutMatches } =
+  loadTypeScript('src/renderer/src/shortcuts.ts')
 
 function key(overrides = {}) {
   return {
@@ -35,161 +33,107 @@ function key(overrides = {}) {
   }
 }
 
-function inputEvent(data, inputType = 'insertText') {
-  return { data, inputType, cancelable: true }
-}
-
-function beginNativeInput(input, event) {
-  const action = input.handleKeyEvent(key(event))
-  assert.equal(action.kind, 'native-input')
-  assert.equal(typeof action.fallbackId, 'number')
-  return action.fallbackId
-}
-
-// English punctuation uses the native input event and never reaches fallback.
+// Printable keys and IME events stay on xterm's native composition path.
 {
   const input = new TerminalInputHandler('win32')
-  const quote = { code: 'Quote', key: "'", keyCode: 222 }
-  const fallbackId = beginNativeInput(input, quote)
-  assert.deepEqual(input.handleKeyEvent(key({ type: 'keypress', ...quote })), {
-    kind: 'native-input'
-  })
-  assert.deepEqual(input.handleInput(inputEvent("'")), { data: "'" })
-  assert.equal(input.takeNativeInputFallback(fallbackId), null)
+  assert.equal(input.handleKeyEvent(key({ code: 'Quote', key: "'", keyCode: 222 })), null)
+  assert.equal(input.handleKeyEvent(key({ code: 'Digit1', key: '1', keyCode: 49 })), null)
+  assert.equal(input.handleKeyEvent(key({ code: 'KeyA', key: 'Process', keyCode: 229 })), null)
+  assert.equal(input.handleKeyEvent(key({ code: 'KeyA', key: 'a', isComposing: true })), null)
+  assert.equal(input.handleKeyEvent(key({ code: 'Enter', key: 'Enter', shiftKey: true })), null)
 }
 
-// If xterm emitted the input first, the DOM input handler only clears the
-// textarea and must not forward the same character a second time.
+// Match Tabby's explicit control-character fixes that xterm cannot derive on
+// every keyboard layout.
 {
   const input = new TerminalInputHandler('win32')
-  const fallbackId = beginNativeInput(input, { code: 'Quote', key: '"', shiftKey: true })
-  input.observeData('"')
-  assert.deepEqual(input.handleInput(inputEvent('"')), { data: null })
-  assert.equal(input.takeNativeInputFallback(fallbackId), null)
-}
-
-// Forward the exact character committed by the IME. Quote pairing belongs to
-// the input method when it submits one character at a time.
-{
-  const input = new TerminalInputHandler('win32')
-  const firstId = beginNativeInput(input, { code: 'Quote', key: '"', shiftKey: true })
-  assert.deepEqual(input.handleInput(inputEvent('“')), { data: '“' })
-  assert.equal(input.takeNativeInputFallback(firstId), null)
-
-  const secondId = beginNativeInput(input, { code: 'Quote', key: '"', shiftKey: true })
-  assert.deepEqual(input.handleInput(inputEvent('”')), { data: '”' })
-  assert.equal(input.takeNativeInputFallback(secondId), null)
-}
-
-// GUI text inputs can submit a complete smart-quote pair and place their DOM
-// caret between it. A terminal has no matching edit operation, so emit one
-// alternating quote per keypress and cancel the pair insertion.
-{
-  const input = new TerminalInputHandler('win32')
-  const firstId = beginNativeInput(input, { code: 'Quote', key: '"', shiftKey: true })
-  assert.deepEqual(input.handleBeforeInput(inputEvent('“”')), { data: '“' })
-  assert.equal(input.takeNativeInputFallback(firstId), null)
-
-  const secondId = beginNativeInput(input, { code: 'Quote', key: '"', shiftKey: true })
-  assert.deepEqual(input.handleBeforeInput(inputEvent('“”')), { data: '”' })
-  assert.equal(input.takeNativeInputFallback(secondId), null)
-
-  const singleFirstId = beginNativeInput(input, { code: 'Quote', key: "'" })
-  assert.deepEqual(input.handleBeforeInput(inputEvent('‘’')), { data: '‘' })
-  assert.equal(input.takeNativeInputFallback(singleFirstId), null)
-}
-
-// The emergency fallback emits the original ASCII key once when Chromium
-// does not produce an input event.
-{
-  const input = new TerminalInputHandler('win32')
-  const fallbackId = beginNativeInput(input, { code: 'Quote', key: '"', shiftKey: true })
-  assert.equal(input.takeNativeInputFallback(fallbackId), '"')
-  assert.equal(input.takeNativeInputFallback(fallbackId), null)
-}
-
-// All standard punctuation and number-row keys use the same native path.
-{
-  const cases = [
-    { code: 'Digit1', key: '1' },
-    { code: 'Digit1', key: '!', shiftKey: true },
-    { code: 'Comma', key: ',' },
-    { code: 'Period', key: '.' },
-    { code: 'Semicolon', key: ':' },
-    { code: 'BracketLeft', key: '【' }
-  ]
-  for (const event of cases) {
-    const input = new TerminalInputHandler('win32')
-    const fallbackId = beginNativeInput(input, event)
-    assert.deepEqual(input.handleInput(inputEvent(event.key)), { data: event.key })
-    assert.equal(input.takeNativeInputFallback(fallbackId), null)
-  }
-}
-
-// Composition and keyCode 229 remain owned by xterm so number selection and
-// normal Pinyin composition are not intercepted.
-{
-  const input = new TerminalInputHandler('win32')
-  assert.equal(input.handleKeyEvent(key({ code: 'Quote', key: 'Process', keyCode: 229 })), null)
-  assert.equal(input.handleKeyEvent(key({ code: 'Digit2', key: '2', isComposing: true })), null)
-
-  const fallbackId = beginNativeInput(input, { code: 'Digit2', key: '2' })
-  input.compositionStart()
-  assert.equal(input.takeNativeInputFallback(fallbackId), null)
-  assert.equal(input.handleKeyEvent(key({ code: 'Digit2', key: '2' })), null)
-  input.compositionEnd()
-  assert.equal(input.handleKeyEvent(key({ code: 'KeyA', key: 'a' })), null)
-}
-
-// Terminal shortcuts and AltGraph-style input must keep xterm's normal path.
-{
-  const input = new TerminalInputHandler('win32')
-  assert.equal(input.handleKeyEvent(key({ code: 'Quote', key: "'", ctrlKey: true })), null)
-  assert.equal(input.handleKeyEvent(key({ code: 'Quote', key: "'", altKey: true })), null)
-  assert.equal(
-    input.handleKeyEvent(key({ code: 'Backslash', key: '|', ctrlKey: true, altKey: true })),
-    null
-  )
-}
-
-// Windows IMEs can label Escape as Process/229 even when no composition
-// session is active. An active composition still gets first refusal.
-{
-  const input = new TerminalInputHandler('win32')
-  assert.deepEqual(
-    input.handleKeyEvent(key({ code: 'Escape', key: 'Process', keyCode: 229, isComposing: true })),
-    { kind: 'write', data: '\x1b' }
-  )
-  input.compositionStart()
-  assert.equal(
-    input.handleKeyEvent(key({ code: 'Escape', key: 'Process', keyCode: 229, isComposing: true })),
-    null
-  )
-}
-
-// Modifier release is state-free and cannot write terminal data or move the
-// application cursor.
-{
-  const input = new TerminalInputHandler('win32')
-  assert.equal(input.handleKeyEvent(key({ type: 'keyup', code: 'ShiftLeft', key: 'Shift' })), null)
-}
-
-{
-  const input = new TerminalInputHandler('win32')
-  assert.deepEqual(input.handleKeyEvent(key({ code: 'Enter', key: 'Enter', shiftKey: true })), {
+  assert.deepEqual(input.handleKeyEvent(key({ code: 'Slash', key: '/', ctrlKey: true })), {
     kind: 'write',
-    data: '\x1b[13;28;13;1;16;1_'
+    data: '\x1f'
   })
+  assert.deepEqual(
+    input.handleKeyEvent(key({ code: 'Digit2', key: '@', ctrlKey: true, shiftKey: true })),
+    { kind: 'write', data: '\x00' }
+  )
+  assert.equal(
+    input.handleKeyEvent(key({ code: 'Slash', key: '/', ctrlKey: true, altKey: true })),
+    null
+  )
+}
+
+// ConPTY uses CSI Home/End, and native terminal editing maps Ctrl+Backspace
+// and Ctrl+Delete to word deletion.
+{
+  const input = new TerminalInputHandler('win32')
+  assert.deepEqual(input.handleKeyEvent(key({ code: 'Home', key: 'Home' })), {
+    kind: 'write',
+    data: '\x1b[H'
+  })
+  assert.deepEqual(input.handleKeyEvent(key({ code: 'End', key: 'End' })), {
+    kind: 'write',
+    data: '\x1b[F'
+  })
+  assert.deepEqual(
+    input.handleKeyEvent(key({ code: 'Backspace', key: 'Backspace', ctrlKey: true })),
+    { kind: 'write', data: '\x17' }
+  )
+  assert.deepEqual(input.handleKeyEvent(key({ code: 'Delete', key: 'Delete', ctrlKey: true })), {
+    kind: 'write',
+    data: '\x1bd\x1b[3;5~'
+  })
+  assert.equal(
+    input.handleKeyEvent(
+      key({ type: 'keyup', code: 'Backspace', key: 'Backspace', ctrlKey: true })
+    ),
+    null
+  )
 }
 
 {
   const input = new TerminalInputHandler('linux')
-  assert.equal(input.handleKeyEvent(key({ code: 'Quote', key: "'" })), null)
-  assert.equal(input.handleKeyEvent(key({ code: 'Escape', key: 'Escape', keyCode: 27 })), null)
-  assert.deepEqual(input.handleKeyEvent(key({ code: 'Enter', key: 'Enter', shiftKey: true })), {
-    kind: 'write',
-    data: '\n'
-  })
+  assert.equal(input.handleKeyEvent(key({ code: 'Home', key: 'Home' })), null)
+  assert.equal(
+    input.handleKeyEvent(key({ code: 'Backspace', key: 'Backspace', ctrlKey: true })),
+    null
+  )
+}
+
+// Windows/Linux reserve Ctrl+C, Ctrl+V and Ctrl+F for terminal input. macOS
+// uses Command through the backwards-compatible canonical Ctrl token.
+{
+  const windows = Object.fromEntries(
+    createShortcutDefs('win32').map((x) => [x.action, x.defaultKeys])
+  )
+  const mac = Object.fromEntries(createShortcutDefs('darwin').map((x) => [x.action, x.defaultKeys]))
+  assert.equal(windows.copy, 'Ctrl+Shift+C')
+  assert.equal(windows.paste, 'Ctrl+Shift+V')
+  assert.equal(windows.search, 'Ctrl+Shift+F')
+  assert.equal(mac.copy, 'Ctrl+C')
+  assert.equal(mac.search, 'Ctrl+F')
+}
+
+// Meta is Win/Super away from macOS and must never trigger Ctrl shortcuts.
+{
+  const winF = key({ code: 'KeyF', key: 'f', metaKey: true })
+  assert.equal(eventToShortcut(winF, 'win32'), 'Meta+F')
+  assert.equal(shortcutMatches('Ctrl+F', winF, 'win32'), false)
+
+  const cmdF = key({ code: 'KeyF', key: 'f', metaKey: true })
+  const controlF = key({ code: 'KeyF', key: 'f', ctrlKey: true })
+  assert.equal(eventToShortcut(cmdF, 'darwin'), 'Ctrl+F')
+  assert.equal(eventToShortcut(controlF, 'darwin'), 'Control+F')
+}
+
+// Latin shortcuts follow the reported layout character, while the shared
+// Equal key keeps Ctrl+= and Ctrl+Shift+= equivalent.
+{
+  assert.equal(eventToShortcut(key({ code: 'KeyY', key: 'z', ctrlKey: true }), 'win32'), 'Ctrl+Z')
+  assert.equal(
+    eventToShortcut(key({ code: 'Equal', key: '+', ctrlKey: true, shiftKey: true }), 'win32'),
+    'Ctrl+='
+  )
+  assert.deepEqual(shortcutDisplayParts('Ctrl+Shift+C', 'darwin'), ['⌘', '⇧', 'C'])
+  assert.deepEqual(shortcutDisplayParts('Meta+F', 'win32'), ['Win', 'F'])
 }
 
 console.log('terminal keyboard input tests passed')

@@ -70,7 +70,7 @@ const onPickIde = async (cmd: string): Promise<void> => {
           defaultIde?.iconDataUrl
             ? undefined
             : defaultIdeIcon
-              ? { background: defaultIdeIcon.color, color: '#fff' }
+              ? { color: defaultIdeIcon.color }
               : undefined
         "
         @click="openDefaultIde"

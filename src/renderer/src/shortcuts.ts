@@ -20,32 +20,44 @@ export interface ShortcutDef {
   defaultKeys: string
 }
 
-export const SHORTCUT_DEFS: ShortcutDef[] = [
-  { action: 'splitRight', label: '向右拆分', defaultKeys: 'Ctrl+Shift+D' },
-  { action: 'splitDown', label: '向下拆分', defaultKeys: 'Ctrl+Shift+S' },
-  { action: 'openDirectory', label: '打开目录为新面板', defaultKeys: 'Ctrl+Shift+O' },
-  { action: 'closePane', label: '关闭面板', defaultKeys: 'Ctrl+Shift+W' },
-  { action: 'search', label: '搜索', defaultKeys: 'Ctrl+F' },
-  { action: 'fontSizeUp', label: '字体放大', defaultKeys: 'Ctrl+=' },
-  { action: 'fontSizeDown', label: '字体缩小', defaultKeys: 'Ctrl+-' },
-  { action: 'fontSizeReset', label: '字体重置', defaultKeys: 'Ctrl+0' },
-  { action: 'copy', label: '复制', defaultKeys: 'Ctrl+C' },
-  { action: 'paste', label: '粘贴', defaultKeys: 'Ctrl+V' },
-  // tmux 风格切焦:Alt+方向键 / Alt+H J K L 都行,默认走方向键(易记)。
-  // Alt 而非 Ctrl 是为了不和 readline Ctrl+P/N、shell history Ctrl+→ 冲突。
-  { action: 'focusUp', label: '焦点上移', defaultKeys: 'Alt+ArrowUp' },
-  { action: 'focusDown', label: '焦点下移', defaultKeys: 'Alt+ArrowDown' },
-  { action: 'focusLeft', label: '焦点左移', defaultKeys: 'Alt+ArrowLeft' },
-  { action: 'focusRight', label: '焦点右移', defaultKeys: 'Alt+ArrowRight' }
-]
+export type ShortcutPlatform = 'darwin' | 'win32' | 'linux' | string
 
-export const DEFAULT_SHORTCUTS: Record<string, string> = Object.fromEntries(
+export const runtimePlatform: ShortcutPlatform =
+  typeof window === 'undefined' ? '' : (window.electron?.process?.platform ?? '')
+
+/**
+ * Native terminals reserve Ctrl combinations for terminal input on Windows
+ * and Linux. macOS uses Command for application commands, represented by the
+ * canonical `Ctrl` token for compatibility with existing saved settings.
+ */
+export function createShortcutDefs(platform: ShortcutPlatform): ShortcutDef[] {
+  const terminalCommand = platform === 'darwin' ? 'Ctrl' : 'Ctrl+Shift'
+
+  return [
+    { action: 'splitRight', label: '向右拆分', defaultKeys: 'Ctrl+Shift+D' },
+    { action: 'splitDown', label: '向下拆分', defaultKeys: 'Ctrl+Shift+S' },
+    { action: 'openDirectory', label: '打开目录为新面板', defaultKeys: 'Ctrl+Shift+O' },
+    { action: 'closePane', label: '关闭面板', defaultKeys: 'Ctrl+Shift+W' },
+    { action: 'search', label: '搜索', defaultKeys: `${terminalCommand}+F` },
+    { action: 'fontSizeUp', label: '字体放大', defaultKeys: 'Ctrl+=' },
+    { action: 'fontSizeDown', label: '字体缩小', defaultKeys: 'Ctrl+-' },
+    { action: 'fontSizeReset', label: '字体重置', defaultKeys: 'Ctrl+0' },
+    { action: 'copy', label: '复制', defaultKeys: `${terminalCommand}+C` },
+    { action: 'paste', label: '粘贴', defaultKeys: `${terminalCommand}+V` },
+    { action: 'focusUp', label: '焦点上移', defaultKeys: 'Alt+ArrowUp' },
+    { action: 'focusDown', label: '焦点下移', defaultKeys: 'Alt+ArrowDown' },
+    { action: 'focusLeft', label: '焦点左移', defaultKeys: 'Alt+ArrowLeft' },
+    { action: 'focusRight', label: '焦点右移', defaultKeys: 'Alt+ArrowRight' }
+  ]
+}
+
+export const SHORTCUT_DEFS: ShortcutDef[] = createShortcutDefs(runtimePlatform)
+
+export const DEFAULT_SHORTCUTS: Record<ShortcutAction, string> = Object.fromEntries(
   SHORTCUT_DEFS.map((d) => [d.action, d.defaultKeys])
-)
+) as Record<ShortcutAction, string>
 
-/** Map physical key codes to canonical key names. */
 function codeToKey(code: string): string | null {
-  if (code.startsWith('Key')) return code.slice(3)
   if (code.startsWith('Digit')) return code.slice(5)
   const map: Record<string, string> = {
     Minus: '-',
@@ -60,8 +72,6 @@ function codeToKey(code: string): string | null {
     Period: '.',
     Slash: '/',
     Backquote: '`',
-    // 方向键和功能键的 code 直接就是名字 —— 显式映射只是为了让 default 中
-    // 'Alt+ArrowUp' 这种字符串与 eventToShortcut 的输出严格一致。
     ArrowUp: 'ArrowUp',
     ArrowDown: 'ArrowDown',
     ArrowLeft: 'ArrowLeft',
@@ -70,21 +80,53 @@ function codeToKey(code: string): string | null {
   return map[code] || null
 }
 
-export function eventToShortcut(e: KeyboardEvent): string {
+function eventKeyName(e: KeyboardEvent): string {
+  // Follow the reported character for Latin layouts (including Dvorak and
+  // QWERTZ), while punctuation stays tied to the physical key like Tabby.
+  if (/^[A-Za-z]$/.test(e.key)) return e.key.toUpperCase()
+  return codeToKey(e.code) || e.key
+}
+
+export function eventToShortcut(
+  e: KeyboardEvent,
+  platform: ShortcutPlatform = runtimePlatform
+): string {
   const parts: string[] = []
-  // macOS 的 Cmd（metaKey）等价于 win/linux 的 Ctrl —— 统一报告为 'Ctrl'，
-  // 跨平台共享同一套 binding：mac 用户按 Cmd+F 也能匹配 default 的 'Ctrl+F'，
-  // win/linux 用户按 Ctrl+F 同样匹配。mac 上的 Control 键也仍然能触发同一组
-  // 快捷键，兼容习惯 win 风格的 mac 用户。
-  if (e.ctrlKey || e.metaKey) parts.push('Ctrl')
-  // The =/+ key shares one physical key — ignore Shift for it so both Ctrl+=
-  // and Ctrl+Shift+= match the same binding. (Old behaviour accepted both.)
+  if (platform === 'darwin') {
+    if (e.metaKey) parts.push('Ctrl')
+    if (e.ctrlKey) parts.push('Control')
+  } else {
+    if (e.ctrlKey) parts.push('Ctrl')
+    if (e.metaKey) parts.push('Meta')
+  }
+  // The =/+ key shares one physical key. Keep the existing behavior where
+  // Ctrl+= and Ctrl+Shift+= both match the zoom-in binding.
   if (e.shiftKey && e.code !== 'Equal') parts.push('Shift')
   if (e.altKey) parts.push('Alt')
-  parts.push(codeToKey(e.code) || e.key)
+  parts.push(eventKeyName(e))
   return parts.join('+')
 }
 
-export function shortcutMatches(shortcut: string, e: KeyboardEvent): boolean {
-  return eventToShortcut(e) === shortcut
+export function shortcutMatches(
+  shortcut: string,
+  e: KeyboardEvent,
+  platform: ShortcutPlatform = runtimePlatform
+): boolean {
+  return eventToShortcut(e, platform) === shortcut
+}
+
+export function shortcutDisplayParts(
+  shortcut: string,
+  platform: ShortcutPlatform = runtimePlatform
+): string[] {
+  return shortcut.split('+').map((part) => {
+    if (platform === 'darwin') {
+      if (part === 'Ctrl') return '⌘'
+      if (part === 'Control') return '⌃'
+      if (part === 'Shift') return '⇧'
+      if (part === 'Alt') return '⌥'
+    }
+    if (part === 'Meta') return platform === 'win32' ? 'Win' : 'Super'
+    return part
+  })
 }

@@ -27,7 +27,7 @@ import RecordingIndicator from './RecordingIndicator.vue'
 import AgentSessionsDrawer from './AgentSessionsDrawer.vue'
 import { useTheme } from '../composables/useTheme'
 import { useVoiceInput } from '../composables/useVoiceInput'
-import { DEFAULT_SHORTCUTS, shortcutMatches } from '../shortcuts'
+import { DEFAULT_SHORTCUTS, shortcutDisplayParts, shortcutMatches } from '../shortcuts'
 import type { ShortcutAction } from '../shortcuts'
 import type { AgentSessionInfo } from '@shared/types'
 import '@xterm/xterm/css/xterm.css'
@@ -145,6 +145,8 @@ const MAX_FONT_SIZE = 32
 // Local mirror of the effective font size. Named distinctly from the
 // `fontSize` prop to avoid a props/state key collision (vue/no-dupe-keys).
 const currentFontSize = ref(DEFAULT_FONT_SIZE)
+const platform = window.api.systemInfo.platform
+const windowsBuild = window.api.systemInfo.windowsBuild
 
 const terminal = new Terminal({
   fontSize: DEFAULT_FONT_SIZE,
@@ -154,6 +156,7 @@ const terminal = new Terminal({
   cursorBlink: true,
   rightClickSelectsWord: false,
   allowProposedApi: true,
+  windowsPty: platform === 'win32' ? { backend: 'conpty', buildNumber: windowsBuild } : undefined,
   theme: xtermTheme.value,
   ...props.options
 })
@@ -286,32 +289,6 @@ const copySelection = async (): Promise<void> => {
   }
 }
 
-const needsMultilinePasteFallback = (text: string): boolean =>
-  /[\r\n]/.test(text) &&
-  terminal.buffer.active.type === 'alternate' &&
-  (!terminal.modes.bracketedPasteMode || terminal.options.ignoreBracketedPasteMode === true)
-
-const pasteTerminalText = (text: string, protectMultiline = false): void => {
-  if (protectMultiline && needsMultilinePasteFallback(text)) {
-    // A full-screen TUI can become interactive before xterm has observed its
-    // DECSET 2004 state. Keep embedded newlines inside one paste event instead
-    // of exposing them to the application as Enter key presses.
-    const normalized = text.replace(/\r?\n/g, '\r')
-    window.api.ptyWrite(props.paneId, `\x1b[200~${normalized}\x1b[201~`)
-    return
-  }
-  terminal.paste(text)
-}
-
-const onTerminalPaste = (event: ClipboardEvent): void => {
-  const text = event.clipboardData?.getData('text/plain') ?? ''
-  if (!needsMultilinePasteFallback(text)) return
-
-  event.preventDefault()
-  event.stopImmediatePropagation()
-  pasteTerminalText(text, true)
-}
-
 const pasteFromClipboard = async (): Promise<void> => {
   try {
     // 优先检查剪贴板中是否有图片。Electron 原生 clipboard API 可以直接读取
@@ -326,58 +303,18 @@ const pasteFromClipboard = async (): Promise<void> => {
   }
   try {
     const text = await navigator.clipboard.readText()
-    if (text) pasteTerminalText(text, true)
+    if (text) terminal.paste(text)
   } catch {
     // clipboard read denied or empty
   }
 }
 
-const platform =
-  (window.electron as unknown as { process?: { platform?: string } }).process?.platform ?? ''
 const terminalInput = new TerminalInputHandler(platform)
 
-if (platform === 'win32') {
-  // Codex 0.145 and older enable focus reporting on Windows even though their
-  // crossterm input path can split ESC[I / ESC[O into ordinary key events.
-  // Prevent xterm from enabling that mode so focus changes cannot corrupt the
-  // TUI input state and make control keys such as Escape stop responding.
-  terminal.parser.registerCsiHandler({ prefix: '?', final: 'h' }, (params) => {
-    return params.length === 1 && params[0] === 1004
-  })
+const shortcutLabel = (action: ShortcutAction): string => {
+  const shortcut = props.shortcuts[action] ?? DEFAULT_SHORTCUTS[action]
+  return shortcutDisplayParts(shortcut, platform).join(platform === 'darwin' ? '' : '+')
 }
-
-const onTerminalBeforeInput = (event: Event): void => {
-  const e = event as InputEvent
-  const action = terminalInput.handleBeforeInput(e)
-  if (action === null) return
-
-  e.preventDefault()
-  if (termTextarea) termTextarea.value = ''
-  if (action.data !== null) window.api.ptyWrite(props.paneId, action.data)
-}
-
-const onTerminalInput = (event: Event): void => {
-  const e = event as InputEvent
-  const action = terminalInput.handleInput(e)
-  if (action === null) return
-
-  // xterm's capture listener runs first. Clear the native textarea after both
-  // handlers have observed the committed character so its caret cannot drift.
-  if (termTextarea) termTextarea.value = ''
-  if (action.data !== null) window.api.ptyWrite(props.paneId, action.data)
-}
-
-const onTerminalCompositionStart = (): void => terminalInput.compositionStart()
-const onTerminalInputBlur = (): void => terminalInput.reset()
-
-const scheduleTerminalNativeInputFallback = (fallbackId: number): void => {
-  setTimeout(() => {
-    const data = terminalInput.takeNativeInputFallback(fallbackId)
-    if (data) window.api.ptyWrite(props.paneId, data)
-  }, 30)
-}
-
-const onTerminalCompositionEnd = (): void => terminalInput.compositionEnd()
 
 const pathFromFileUrl = (url: string): string | null => {
   try {
@@ -506,7 +443,7 @@ terminal.attachCustomKeyEventHandler((e): boolean => {
   // shortcutMatches 对 F2 这类功能键同样生效(eventToShortcut fallback 到 e.key)。
   // e.repeat 在按住时会持续触发 keydown,只接首次 down。
   const voiceKey = props.voiceShortcut || 'F2'
-  if (shortcutMatches(voiceKey, e)) {
+  if (shortcutMatches(voiceKey, e, platform)) {
     e.preventDefault()
     if (e.type === 'keydown' && !e.repeat) {
       void voiceStart()
@@ -521,20 +458,12 @@ terminal.attachCustomKeyEventHandler((e): boolean => {
     window.api.ptyWrite(props.paneId, inputAction.data)
     return false
   }
-  if (inputAction?.kind === 'native-input') {
-    if (inputAction.fallbackId !== undefined) {
-      scheduleTerminalNativeInputFallback(inputAction.fallbackId)
-    }
-    // Returning false exits xterm's keydown/keypress handler without
-    // canceling the browser event, allowing the IME to submit native text.
-    return false
-  }
   if (e.type !== 'keydown') return true
 
   const effective = { ...DEFAULT_SHORTCUTS, ...props.shortcuts }
 
   for (const [action, keys] of Object.entries(effective)) {
-    if (!shortcutMatches(keys, e)) continue
+    if (!shortcutMatches(keys, e, platform)) continue
 
     switch (action as ShortcutAction) {
       case 'splitRight':
@@ -601,11 +530,8 @@ terminal.attachCustomKeyEventHandler((e): boolean => {
   return true
 })
 
-// All other input → forward to PTY
-terminal.onData((data) => {
-  terminalInput.observeData(data)
-  window.api.ptyWrite(props.paneId, data)
-})
+// All other input stays on xterm's native keyboard and composition path.
+terminal.onData((data) => window.api.ptyWrite(props.paneId, data))
 
 // 把 (x, y) 钉到视口内 —— 右键发生在右/下边缘附近时,菜单会被视口裁掉,常见
 // 体验是部分项不可点。clamp 完保留 4px 安全 gutter,且永远不会落到负值左上角
@@ -839,13 +765,7 @@ onMounted(async () => {
   termElement = terminal.element ?? null
   termTextarea = terminal.textarea ?? null
   termElement?.addEventListener('contextmenu', onContextMenu)
-  termElement?.addEventListener('paste', onTerminalPaste, true)
   termTextarea?.addEventListener('focus', onTerminalFocus)
-  termTextarea?.addEventListener('beforeinput', onTerminalBeforeInput)
-  termTextarea?.addEventListener('input', onTerminalInput)
-  termTextarea?.addEventListener('compositionstart', onTerminalCompositionStart)
-  termTextarea?.addEventListener('compositionend', onTerminalCompositionEnd)
-  termTextarea?.addEventListener('blur', onTerminalInputBlur)
 
   unsubscribeData = window.api.onPtyData(props.paneId, (chunk, acknowledge) =>
     terminal.write(chunk, acknowledge)
@@ -925,14 +845,7 @@ window.addEventListener('blur', closeContextMenu)
 onUnmounted(() => {
   window.removeEventListener('blur', closeContextMenu)
   termElement?.removeEventListener('contextmenu', onContextMenu)
-  termElement?.removeEventListener('paste', onTerminalPaste, true)
   termTextarea?.removeEventListener('focus', onTerminalFocus)
-  termTextarea?.removeEventListener('beforeinput', onTerminalBeforeInput)
-  termTextarea?.removeEventListener('input', onTerminalInput)
-  termTextarea?.removeEventListener('compositionstart', onTerminalCompositionStart)
-  termTextarea?.removeEventListener('compositionend', onTerminalCompositionEnd)
-  termTextarea?.removeEventListener('blur', onTerminalInputBlur)
-  terminalInput.reset()
   termElement = null
   termTextarea = null
   resizeObserver?.disconnect()
@@ -1038,12 +951,12 @@ onUnmounted(() => {
           <div class="cm-item" :class="{ disabled: !menuHasSelection }" @click="onCopy">
             <Copy :size="14" class="cm-icon" />
             <span class="cm-label">复制</span>
-            <span class="cm-shortcut">Ctrl+C</span>
+            <span class="cm-shortcut">{{ shortcutLabel('copy') }}</span>
           </div>
           <div class="cm-item" @click="onPaste">
             <ClipboardPaste :size="14" class="cm-icon" />
             <span class="cm-label">粘贴</span>
-            <span class="cm-shortcut">Ctrl+V</span>
+            <span class="cm-shortcut">{{ shortcutLabel('paste') }}</span>
           </div>
           <div class="cm-item" @click="onSelectAll">
             <TextSelect :size="14" class="cm-icon" />
@@ -1055,7 +968,7 @@ onUnmounted(() => {
           <div class="cm-item" @click="onFind">
             <Search :size="14" class="cm-icon" />
             <span class="cm-label">查找</span>
-            <span class="cm-shortcut">Ctrl+F</span>
+            <span class="cm-shortcut">{{ shortcutLabel('search') }}</span>
           </div>
           <div class="cm-item" @click="onClear">
             <Eraser :size="14" class="cm-icon" />
@@ -1067,17 +980,17 @@ onUnmounted(() => {
           <div class="cm-item" @click="onSplitRight">
             <SplitSquareHorizontal :size="14" class="cm-icon" />
             <span class="cm-label">向右拆分</span>
-            <span class="cm-shortcut">Ctrl+Shift+D</span>
+            <span class="cm-shortcut">{{ shortcutLabel('splitRight') }}</span>
           </div>
           <div class="cm-item" @click="onSplitDown">
             <SplitSquareVertical :size="14" class="cm-icon" />
             <span class="cm-label">向下拆分</span>
-            <span class="cm-shortcut">Ctrl+Shift+S</span>
+            <span class="cm-shortcut">{{ shortcutLabel('splitDown') }}</span>
           </div>
           <div class="cm-item" @click="onClosePane">
             <X :size="14" class="cm-icon" />
             <span class="cm-label">关闭面板</span>
-            <span class="cm-shortcut">Ctrl+Shift+W</span>
+            <span class="cm-shortcut">{{ shortcutLabel('closePane') }}</span>
           </div>
 
           <div class="cm-divider" />
@@ -1085,7 +998,7 @@ onUnmounted(() => {
           <div class="cm-item" @click="onOpenDirectory">
             <FolderOpen :size="14" class="cm-icon" />
             <span class="cm-label">打开目录…</span>
-            <span class="cm-shortcut">Ctrl+Shift+O</span>
+            <span class="cm-shortcut">{{ shortcutLabel('openDirectory') }}</span>
           </div>
 
           <div class="cm-item" @click="onOpenSettings">

@@ -1,5 +1,6 @@
 import { contextBridge, ipcRenderer, IpcRendererEvent, webUtils } from 'electron'
 import { electronAPI } from '@electron-toolkit/preload'
+import { release } from 'node:os'
 import type {
   TaskMeta,
   Settings,
@@ -35,7 +36,14 @@ import type {
 // 通道命名见 main/index.ts 顶部注释:
 //   sys-* / git-* / pty-* / task-* / settings-* / theme-* / win-* / ide-*
 // 之前 git 系列混用 `get-git-*` 与 `git-*`,已统一为 git-*。
+const windowsBuild =
+  process.platform === 'win32' ? Number.parseInt(release().split('.')[2] ?? '', 10) : undefined
+
 const api = {
+  systemInfo: {
+    platform: process.platform,
+    windowsBuild: Number.isFinite(windowsBuild) ? windowsBuild : undefined
+  },
   // ---- 系统信息 -----------------------------------------------------------
   getCwd: () => ipcRenderer.invoke('sys-cwd') as Promise<string>,
   getPlatform: () => ipcRenderer.invoke('sys-platform') as Promise<NodeJS.Platform>,

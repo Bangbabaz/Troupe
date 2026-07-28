@@ -119,18 +119,18 @@ Terminal MCP 使用 `terminal_list_ssh` 发现已打开的 SSH 面板，使用 `
 
 ## 快捷键
 
-| 快捷键              | 功能                           |
-| ------------------- | ------------------------------ |
-| `Ctrl+Shift+D`      | 向右拆分面板                   |
-| `Ctrl+Shift+S`      | 向下拆分面板                   |
-| `Ctrl+Shift+W`      | 关闭当前面板                   |
-| `Ctrl+F`            | 搜索终端内容                   |
-| `Ctrl+=` / `Ctrl++` | 增大终端字号                   |
-| `Ctrl+-`            | 减小终端字号                   |
-| `Ctrl+0`            | 重置终端字号                   |
-| `Ctrl+C`            | 有选区时复制，否则发送中断信号 |
-| `Ctrl+V`            | 安全粘贴                       |
-| 按住 `F2`           | 语音输入                       |
+| Windows / Linux     | macOS             | 功能         |
+| ------------------- | ----------------- | ------------ |
+| `Ctrl+Shift+D`      | `Cmd+Shift+D`     | 向右拆分面板 |
+| `Ctrl+Shift+S`      | `Cmd+Shift+S`     | 向下拆分面板 |
+| `Ctrl+Shift+W`      | `Cmd+Shift+W`     | 关闭当前面板 |
+| `Ctrl+Shift+F`      | `Cmd+F`           | 搜索终端内容 |
+| `Ctrl+=` / `Ctrl++` | `Cmd+=` / `Cmd++` | 增大终端字号 |
+| `Ctrl+-`            | `Cmd+-`           | 减小终端字号 |
+| `Ctrl+0`            | `Cmd+0`           | 重置终端字号 |
+| `Ctrl+Shift+C`      | `Cmd+C`           | 复制选区     |
+| `Ctrl+Shift+V`      | `Cmd+V`           | 粘贴         |
+| 按住 `F2`           | 按住 `F2`         | 语音输入     |
 
 快捷键可以在设置中调整。
 

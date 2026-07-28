@@ -2,16 +2,18 @@
   margin-left: auto;
   display: inline-flex;
   align-items: stretch;
-  height: 24px;
+  height: 28px;
   flex-shrink: 0;
   overflow: hidden;
-  background: transparent;
-  border: 1px solid transparent;
+  background: var(--el-bg-color);
+  border: 1px solid var(--el-border-color-light);
   border-radius: 6px;
+  transition:
+    background-color 0.12s ease,
+    border-color 0.12s ease;
 
   &:hover {
-    border-color: var(--el-border-color-light);
-    background: color-mix(in srgb, var(--el-text-color-primary) 7%, transparent);
+    border-color: var(--el-border-color-dark);
   }
 }
 
@@ -20,16 +22,20 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 24px;
-  height: 22px;
+  width: 28px;
+  height: 26px;
   border-radius: 6px 0 0 6px;
   background: transparent;
   color: var(--el-text-color-regular);
   flex-shrink: 0;
-  transition: filter 0.12s;
+  transition: background-color 0.12s ease;
 
   &:hover:not(:disabled) {
-    filter: brightness(1.08);
+    background: var(--el-fill-color);
+  }
+
+  &:active:not(:disabled) {
+    background: color-mix(in srgb, var(--el-color-primary) 10%, var(--el-bg-color));
   }
 
   &:disabled {
@@ -59,7 +65,7 @@
   font-size: 10px;
   font-weight: 700;
   line-height: 1;
-  color: #fff;
+  color: currentColor;
   @include ui-font;
 }
 
@@ -68,18 +74,24 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 16px;
-  height: 22px;
+  width: 18px;
+  height: 26px;
   background: transparent;
   border-radius: 0 6px 6px 0;
   color: var(--el-text-color-secondary);
-  border-left: 1px solid transparent;
+  border-left: 1px solid var(--el-border-color-light);
   flex-shrink: 0;
+  transition:
+    background-color 0.12s ease,
+    color 0.12s ease;
 
   &:hover:not(:disabled) {
-    background: color-mix(in srgb, var(--el-text-color-primary) 8%, transparent);
+    background: var(--el-fill-color);
     color: var(--el-text-color-primary);
-    border-left-color: var(--el-border-color-light);
+  }
+
+  &:active:not(:disabled) {
+    background: color-mix(in srgb, var(--el-color-primary) 10%, var(--el-bg-color));
   }
 
   &:disabled {

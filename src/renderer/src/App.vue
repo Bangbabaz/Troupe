@@ -31,7 +31,13 @@ import QuickCommandsSettings from './components/QuickCommandsSettings.vue'
 import { useTheme, type ThemePref } from './composables/useTheme'
 import { useLayout } from './composables/useLayout'
 import { useTasks } from './composables/useTasks'
-import { DEFAULT_SHORTCUTS, SHORTCUT_DEFS, eventToShortcut } from './shortcuts'
+import {
+  DEFAULT_SHORTCUTS,
+  SHORTCUT_DEFS,
+  eventToShortcut,
+  runtimePlatform,
+  shortcutDisplayParts
+} from './shortcuts'
 import type {
   AgentSessionInfo,
   QuickCommand,
@@ -50,10 +56,7 @@ const cwd = ref<string | null>(null)
 const isMaximized = ref(false)
 // 同步取 platform,首次 paint 就用对应的 title-bar layout —— 异步的
 // getPlatform() 会让 mac 上短暂闪过 win 风格 traffic light。
-const isMac = ref(
-  ((window.electron as unknown as { process?: { platform?: string } }).process?.platform ?? '') ===
-    'darwin'
-)
+const isMac = ref(runtimePlatform === 'darwin')
 
 const DEFAULT_FONT_SIZE = 13
 const MIN_FONT_SIZE = 8
@@ -122,18 +125,8 @@ const updateProgress = ref<number | null>(null)
 const updateReady = ref<string | null>(null)
 let unsubscribeUpdateStatus: (() => void) | null = null
 
-// 内部 binding 字符串统一用 'Ctrl' 表达"主修饰键",UI 显示按平台翻译。mac 上
-// 用 ⌘⇧⌥ 更符合习惯且更省横向空间。
-const displayShortcutParts = (combo: string): string[] => {
-  const parts = combo.split('+')
-  if (!isMac.value) return parts
-  return parts.map((p) => {
-    if (p === 'Ctrl') return '⌘'
-    if (p === 'Shift') return '⇧'
-    if (p === 'Alt') return '⌥'
-    return p
-  })
-}
+const displayShortcutParts = (combo: string): string[] =>
+  shortcutDisplayParts(combo, runtimePlatform)
 
 const startRecording = (action: string): void => {
   recordingAction.value = action
@@ -221,7 +214,7 @@ const onRecordingKeydown = (e: KeyboardEvent): void => {
 
   if (['Control', 'Shift', 'Alt', 'Meta'].includes(e.key)) return
 
-  // mac 上的 Cmd 在 eventToShortcut 里折叠成 'Ctrl',所以让 metaKey 也算修饰。
+  // macOS 的 Cmd 会被规范化为兼容旧设置的 Ctrl token。
   if (!e.ctrlKey && !e.metaKey && !e.altKey) return
 
   const shortcut = eventToShortcut(e)

@@ -4,6 +4,7 @@
 // 同时维持一个环形网络请求缓冲区供 MCP server 的 browser_network 工具查询。
 
 import { app, net, webContents } from 'electron'
+import { join } from 'node:path'
 import type { BrowserResourceProxyConfig, BrowserResourceProxyPathRule } from '@shared/types'
 
 // ---------------------------------------------------------------------------
@@ -345,9 +346,7 @@ export function registerBrowser(paneId: string, wcId: number): void {
         suggestedFilename: p.suggestedFilename,
         fileName: p.suggestedFilename,
         state: 'inProgress',
-        path: p.suggestedFilename
-          ? `${app.getPath('downloads')}\\${p.suggestedFilename}`
-          : undefined,
+        path: p.suggestedFilename ? join(app.getPath('downloads'), p.suggestedFilename) : undefined,
         timestamp: Date.now()
       })
       if (session.downloads.length > 50) session.downloads.shift()
