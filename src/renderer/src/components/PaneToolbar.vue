@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { ref, watch } from 'vue'
-import { Globe, GripVertical, PanelLeft, Server } from 'lucide-vue-next'
+import { computed, ref, watch } from 'vue'
+import { Bot, Folder, Globe, GripVertical, Server } from 'lucide-vue-next'
 import BranchSelector from './toolbar/BranchSelector.vue'
 import WorktreePanel from './toolbar/WorktreePanel.vue'
 import GitOpsButtons from './toolbar/GitOpsButtons.vue'
@@ -43,6 +43,11 @@ const currentBranch = ref<string | null>(null)
 const branches = ref<BranchInfo[]>([])
 const diffStats = ref<DiffStats>({ added: 0, deleted: 0 })
 const mergeStatus = ref<MergeStatus | null>(null)
+
+const locationName = computed(() => {
+  const normalized = (props.cwd || '').replace(/\\/g, '/').replace(/\/+$/, '')
+  return normalized.split('/').filter(Boolean).pop() || 'Terminal'
+})
 // switching / 乐观分支显示都留在 BranchSelector 内部 —— 父级不需要参与切换流程,
 // 切完只关心 refresh,通过子级 emit('changed') 触发。
 
@@ -178,14 +183,21 @@ async function onConflictDetected(): Promise<void> {
   <!-- 工具栏 v-if 仅在 cwd 已知时渲染;不再以 isRepo 为条件,非 git 目录也展示
        TaskRunner + IdeLauncher。 -->
   <div v-if="props.cwd" class="pane-toolbar" @click.stop>
-    <button
-      class="pane-drag-handle"
-      title="拖拽以重排面板"
-      @mousedown.left.prevent.stop="emit('paneDragStart')"
-    >
-      <GripVertical :size="14" />
-    </button>
-    <template v-if="isRepo">
+    <div class="pane-identity">
+      <button
+        class="pane-drag-handle"
+        title="拖拽以重排面板"
+        @mousedown.left.prevent.stop="emit('paneDragStart')"
+      >
+        <GripVertical :size="13" />
+      </button>
+      <div class="pane-location" :title="props.cwd">
+        <Folder :size="13" class="pane-location-icon" />
+        <span class="pane-location-name">{{ locationName }}</span>
+      </div>
+    </div>
+
+    <div v-if="isRepo" class="pane-toolbar-section pane-git-section">
       <BranchSelector
         :cwd="props.cwd"
         :branches="branches"
@@ -195,6 +207,7 @@ async function onConflictDetected(): Promise<void> {
         @worktree-from-branch="onWorktreeFromBranch"
         @conflict-detected="onConflictDetected"
       />
+      <span class="control-divider" />
       <WorktreePanel
         ref="worktreePanelRef"
         :cwd="props.cwd"
@@ -209,37 +222,39 @@ async function onConflictDetected(): Promise<void> {
         :merge-status="mergeStatus"
         @changed="requestRefresh"
       />
-    </template>
+      <DiffStatsButton :cwd="props.cwd" :diff-stats="diffStats" />
+    </div>
 
     <div v-if="props.isRemote" class="remote-badge" :title="props.remoteLabel || 'SSH'">
-      <Server :size="13" />
+      <Server :size="12" />
       <span>{{ props.remoteLabel || 'SSH' }}</span>
     </div>
 
     <!-- 任务运行 / IDE 启动:无论是否 git 都显示。语音输入只走快捷键(默认 F2),
-         不再渲染按钮 —— 录音中浮在 pane 底部的 RecordingIndicator 就是反馈。
-         IdeLauncher 自带 margin-left: auto,把右侧锚定到工具栏末端。
-         DiffStatsButton 跟在最后,保证 +N -N 在最右。 -->
-    <TaskRunner
-      v-if="!props.isRemote"
-      :pane-id="props.paneId"
-      :cwd="props.cwd"
-      @manage-tasks="(cwd?: string, nd?: boolean) => emit('manageTasks', cwd, nd)"
-    />
-    <el-tooltip content="浏览器" placement="bottom" :show-after="300">
-      <button class="browser-btn" @click="emit('toggleBrowser')">
-        <Globe :size="14" />
-      </button>
-    </el-tooltip>
-    <div class="toolbar-right-group">
-      <el-tooltip content="当前目录会话" placement="bottom" :show-after="300">
+         不再渲染按钮 —— 录音中浮在 pane 底部的 RecordingIndicator 就是反馈。 -->
+    <div v-if="!props.isRemote" class="pane-toolbar-section pane-task-section">
+      <TaskRunner
+        :pane-id="props.paneId"
+        :cwd="props.cwd"
+        @manage-tasks="(cwd?: string, nd?: boolean) => emit('manageTasks', cwd, nd)"
+      />
+    </div>
+
+    <div class="pane-toolbar-spacer" />
+
+    <div class="pane-toolbar-section pane-action-section">
+      <el-tooltip content="内置浏览器" placement="bottom" :show-after="300">
+        <button class="browser-btn" @click="emit('toggleBrowser')">
+          <Globe :size="14" />
+        </button>
+      </el-tooltip>
+      <el-tooltip content="Agent 会话" placement="bottom" :show-after="300">
         <button class="session-btn" @click="emit('toggleAgentSessions')">
-          <PanelLeft :size="14" />
+          <Bot :size="14" />
         </button>
       </el-tooltip>
       <IdeLauncher v-if="!props.isRemote" :cwd="props.cwd" />
     </div>
-    <DiffStatsButton v-if="isRepo" :cwd="props.cwd" :diff-stats="diffStats" />
   </div>
 </template>
 

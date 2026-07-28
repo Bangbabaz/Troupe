@@ -64,12 +64,24 @@
   width: $size;
   height: $size;
   flex-shrink: 0;
-  border-radius: var(--el-border-radius-small);
+  border: 1px solid var(--el-border-color-light);
+  border-radius: 6px;
+  background: var(--el-bg-color);
   color: var(--el-text-color-secondary);
+  transition:
+    background-color 0.12s ease,
+    color 0.12s ease,
+    box-shadow 0.12s ease;
 
   &:hover:not(:disabled) {
+    border-color: var(--el-border-color-dark);
     background: var(--el-fill-color);
     color: var(--el-text-color-primary);
+  }
+
+  &:active:not(:disabled) {
+    border-color: color-mix(in srgb, var(--el-color-primary) 55%, var(--el-border-color));
+    background: color-mix(in srgb, var(--el-color-primary) 10%, var(--el-bg-color));
   }
 
   &:disabled {
@@ -84,11 +96,14 @@
   align-items: center;
   height: 26px;
   flex-shrink: 0;
-  border-radius: var(--el-border-radius-small);
+  border-radius: 6px;
   color: var(--el-text-color-regular);
+  transition:
+    background-color 0.12s ease,
+    color 0.12s ease;
 
   &:hover:not(:disabled) {
-    background: var(--el-fill-color);
+    background: color-mix(in srgb, var(--el-text-color-primary) 8%, transparent);
     color: var(--el-text-color-primary);
   }
 }
@@ -100,9 +115,9 @@
 @mixin teleported-picker-dropdown {
   .el-dropdown-menu {
     background: var(--el-bg-color-overlay);
-    border: 1px solid var(--el-border-color);
+    border: 1px solid var(--el-border-color-light);
     padding: 5px;
-    border-radius: var(--el-border-radius-base);
+    border-radius: $radius-lg;
     box-shadow: var(--el-box-shadow-light);
   }
 
@@ -112,12 +127,13 @@
     gap: 8px;
     color: var(--el-text-color-regular);
     font-size: 12px;
-    padding: 5px 10px;
+    min-height: 30px;
+    padding: 5px 9px;
     border-radius: $radius;
     line-height: 1.4;
 
     &:not(.is-disabled):hover {
-      background: var(--el-fill-color);
+      background: color-mix(in srgb, var(--el-text-color-primary) 7%, transparent);
       color: var(--el-text-color-primary);
     }
 
@@ -155,13 +171,13 @@
 // where the semantic-filled treatment would be too loud (view-tasks button,
 // task-row edit button), so the icon stays readable in both themes.
 @mixin neutral-outlined-btn {
-  background: none;
-  border: 1px solid var(--el-border-color);
+  background: color-mix(in srgb, var(--el-bg-color-overlay) 45%, transparent);
+  border: 1px solid var(--el-border-color-light);
   color: var(--el-text-color-regular);
 
   &:hover {
     background: var(--el-fill-color);
-    border-color: var(--el-text-color-secondary);
-    color: var(--el-color-primary);
+    border-color: var(--el-border-color-dark);
+    color: var(--el-text-color-primary);
   }
 }

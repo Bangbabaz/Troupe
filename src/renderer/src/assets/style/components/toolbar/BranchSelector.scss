@@ -1,19 +1,27 @@
 // git 图标本身不再用 danger 红色;统一中性 secondary,避免被误读为告警。
 .branch-select {
-  width: 168px;
+  width: 132px;
   --el-select-input-font-size: 12px;
 }
 
+.branch-prefix {
+  color: var(--el-color-primary);
+}
+
 .switch-msg {
-  font-size: 13px;
-  color: var(--el-text-color-primary);
-  line-height: 1.7;
+  padding: 14px 16px;
+  border: 1px solid var(--el-border-color-light);
+  border-radius: 6px;
+  background: var(--el-bg-color);
+  color: var(--el-text-color-regular);
+  font-size: 12px;
+  line-height: 1.8;
 
   code {
     @include mono-font;
     font-size: 12px;
-    background: var(--el-fill-color-blank);
-    padding: 1px 5px;
+    background: var(--el-fill-color);
+    padding: 2px 6px;
     border-radius: $radius-sm;
   }
 }

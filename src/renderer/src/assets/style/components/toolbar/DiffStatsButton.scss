@@ -1,7 +1,10 @@
 .diff-stats {
   @include toolbar-control;
   gap: 6px;
+  height: 28px;
   padding: 0 7px;
+  border: 1px solid var(--el-border-color-light);
+  background: var(--el-bg-color);
   font-size: 11px;
   line-height: 1;
   @include mono-font;

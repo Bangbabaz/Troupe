@@ -66,15 +66,15 @@ function manage(): void {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 34px;
-  height: 24px;
+  width: 30px;
+  height: 28px;
   color: var(--el-text-color-regular);
   border-radius: $radius;
   cursor: pointer;
 
   &:hover:not(:disabled) {
-    color: var(--el-color-primary);
-    background: var(--el-fill-color);
+    color: var(--el-text-color-primary);
+    background: color-mix(in srgb, var(--el-text-color-primary) 8%, transparent);
   }
 
   &:disabled {
@@ -104,7 +104,7 @@ function manage(): void {
   border-radius: $radius-sm;
 
   &:hover {
-    background: var(--el-fill-color-light);
+    background: color-mix(in srgb, var(--el-text-color-primary) 7%, transparent);
   }
 }
 

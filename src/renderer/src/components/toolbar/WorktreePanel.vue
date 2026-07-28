@@ -7,7 +7,8 @@ import {
   SplitSquareHorizontal,
   RefreshCw,
   GitBranch,
-  LockKeyhole
+  LockKeyhole,
+  Plus
 } from 'lucide-vue-next'
 import type { BranchInfo, WorktreeInfo } from '@shared/types'
 
@@ -335,7 +336,7 @@ defineExpose({ openWorktreeDialog })
 
 <template>
   <el-tooltip content="新建工作树" placement="bottom" :show-after="300">
-    <button class="wt-btn" @click="openWorktreeDialog()">+</button>
+    <button class="wt-btn" @click="openWorktreeDialog()"><Plus :size="13" /></button>
   </el-tooltip>
   <el-tooltip content="管理工作树" placement="bottom" :show-after="300">
     <button class="wt-btn icon" @click="openWtManage">
@@ -529,7 +530,7 @@ defineExpose({ openWorktreeDialog })
   flex-shrink: 0;
   border: 1px solid color-mix(in srgb, #{$color} 40%, transparent);
   color: $color;
-  border-radius: $radius;
+  border-radius: 6px;
 }
 
 .wt-btn {
@@ -545,21 +546,22 @@ defineExpose({ openWorktreeDialog })
 .wt-form {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 18px;
 }
 
 .wt-row {
   display: flex;
-  align-items: center;
-  gap: 8px;
+  align-items: stretch;
+  flex-direction: column;
+  gap: 7px;
 }
 
 .wt-label {
-  font-size: 12px;
-  color: var(--el-text-color-regular);
-  width: 52px;
-  flex-shrink: 0;
-  text-align: right;
+  width: auto;
+  color: var(--el-text-color-secondary);
+  font-size: 11px;
+  font-weight: 600;
+  text-align: left;
 }
 
 .wt-field {
@@ -576,17 +578,19 @@ defineExpose({ openWorktreeDialog })
 
   :deep(.el-radio-button__inner) {
     width: 100%;
+    min-height: 32px;
+    padding: 8px 10px;
   }
 }
 
 .wt-warn {
-  margin-top: 12px;
+  margin-top: 4px;
   font-size: 12px;
   color: var(--el-color-warning);
   background: color-mix(in srgb, var(--el-color-warning) 10%, transparent);
   border: 1px solid color-mix(in srgb, var(--el-color-warning) 27%, transparent);
-  padding: 6px 10px;
-  border-radius: $radius;
+  padding: 10px 12px;
+  border-radius: 6px;
   word-break: break-all;
 }
 
@@ -602,8 +606,9 @@ defineExpose({ openWorktreeDialog })
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-  margin-bottom: 12px;
-  padding: 0 2px;
+  margin-bottom: 16px;
+  padding: 0 2px 14px;
+  border-bottom: 1px solid var(--el-border-color-light);
 }
 
 .wt-manage-summary {
@@ -626,7 +631,7 @@ defineExpose({ openWorktreeDialog })
   height: 28px;
   padding: 0 9px;
   border: 1px solid var(--el-border-color);
-  border-radius: var(--el-border-radius-small);
+  border-radius: 6px;
   color: var(--el-text-color-secondary);
   font-size: 11px;
 
@@ -653,7 +658,7 @@ defineExpose({ openWorktreeDialog })
 .wt-manage-list {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 8px;
   max-height: 52vh;
   overflow-y: auto;
 }
@@ -662,10 +667,10 @@ defineExpose({ openWorktreeDialog })
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 10px 12px;
+  padding: 12px 14px;
   background: var(--el-bg-color);
   border: 1px solid var(--el-border-color-light);
-  border-radius: $radius;
+  border-radius: 6px;
 
   &:hover {
     background: var(--el-fill-color-lighter);

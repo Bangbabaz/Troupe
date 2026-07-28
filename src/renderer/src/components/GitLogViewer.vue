@@ -975,7 +975,7 @@ const fileStatusLabel = (s: FilePatch['status']): string =>
 .gl-branches-label {
   font-size: 10px;
   color: var(--el-text-color-placeholder);
-  letter-spacing: 0.04em;
+  letter-spacing: 0;
 }
 
 .gl-ref {
@@ -1175,7 +1175,7 @@ const fileStatusLabel = (s: FilePatch['status']): string =>
 .gl-files-title {
   font-size: 11px;
   font-weight: 600;
-  letter-spacing: 0.05em;
+  letter-spacing: 0;
   color: var(--el-text-color-secondary);
   padding: 0 8px 6px;
 }

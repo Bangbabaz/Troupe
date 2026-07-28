@@ -15,7 +15,7 @@
 *::after {
   box-sizing: border-box;
   margin: 0;
-  font-weight: normal;
+  letter-spacing: 0;
 }
 
 ul {
@@ -33,7 +33,7 @@ body {
   min-height: 100vh;
   color: var(--el-text-color-primary);
   background: var(--el-bg-color-page);
-  line-height: 1.6;
+  line-height: 1.4;
   font-family: $font-ui;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
@@ -48,8 +48,8 @@ select {
 }
 
 button:focus-visible {
-  outline: 2px solid var(--el-color-primary);
-  outline-offset: 1px;
+  outline: 2px solid color-mix(in srgb, var(--el-color-primary) 86%, transparent);
+  outline-offset: 2px;
 }
 
 #app {
@@ -57,7 +57,32 @@ button:focus-visible {
   height: 100vh;
 }
 
-// App-wide: hide scrollbars (terminal/log content scrolls; chrome stays clean).
+::selection {
+  background: color-mix(in srgb, var(--el-color-primary) 28%, transparent);
+}
+
 * {
-  @include hide-scrollbar;
+  scrollbar-width: thin;
+  scrollbar-color: var(--el-border-color-dark) transparent;
+
+  &::-webkit-scrollbar {
+    width: 7px;
+    height: 7px;
+  }
+
+  &::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  &::-webkit-scrollbar-thumb {
+    border: 2px solid transparent;
+    border-radius: 999px;
+    background: var(--el-border-color-dark);
+    background-clip: padding-box;
+  }
+
+  &::-webkit-scrollbar-thumb:hover {
+    background: var(--el-text-color-placeholder);
+    background-clip: padding-box;
+  }
 }

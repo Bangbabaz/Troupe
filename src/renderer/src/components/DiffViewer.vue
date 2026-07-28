@@ -492,7 +492,7 @@ function startMidDrag(e: MouseEvent): void {
 .dv-sidebar-title {
   font-size: 11px;
   font-weight: 600;
-  letter-spacing: 0.05em;
+  letter-spacing: 0;
   color: var(--el-text-color-secondary);
   padding: 4px 8px 8px;
   @include ui-font;

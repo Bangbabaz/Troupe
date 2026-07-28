@@ -16,10 +16,10 @@
   display: flex;
   align-items: center;
   gap: 2px;
-  height: 28px;
-  padding: 0 6px;
-  background: var(--el-fill-color-light);
-  border-bottom: 1px solid var(--el-border-color);
+  height: 32px;
+  padding: 0 7px;
+  background: color-mix(in srgb, var(--el-bg-color) 94%, var(--el-bg-color-page));
+  border-bottom: 1px solid var(--el-border-color-light);
   flex-shrink: 0;
   user-select: none;
 }
@@ -29,15 +29,15 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 22px;
-  height: 22px;
+  width: 24px;
+  height: 24px;
   border-radius: $radius-sm;
   color: var(--el-text-color-secondary);
   flex-shrink: 0;
 
   &:hover {
-    background: var(--el-fill-color);
-    color: var(--el-color-primary);
+    background: color-mix(in srgb, var(--el-text-color-primary) 8%, transparent);
+    color: var(--el-text-color-primary);
   }
 
   &:disabled {
@@ -69,19 +69,20 @@
 .browser-nav-url {
   flex: 1;
   min-width: 0;
-  height: 22px;
-  padding: 0 6px;
-  border: 1px solid transparent;
+  height: 24px;
+  padding: 0 9px;
+  border: 1px solid var(--el-border-color-light);
   border-radius: $radius-sm;
-  background: var(--el-bg-color);
+  background: var(--el-fill-color-blank);
   color: var(--el-text-color-regular);
   font-size: 11px;
   font-family: $font-mono;
-  line-height: 22px;
+  line-height: 24px;
   @include ellipsis;
 
   &:focus {
     border-color: var(--el-color-primary);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--el-color-primary) 12%, transparent);
     outline: none;
   }
 }
@@ -91,16 +92,16 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 22px;
-  height: 22px;
+  width: 24px;
+  height: 24px;
   border-radius: $radius-sm;
   color: var(--el-text-color-secondary);
   flex-shrink: 0;
   margin-left: 2px;
 
   &:hover {
-    background: var(--el-fill-color);
-    color: var(--el-text-color-regular);
+    background: color-mix(in srgb, var(--el-color-danger) 12%, transparent);
+    color: var(--el-color-danger);
   }
 }
 
@@ -109,8 +110,8 @@
   flex-direction: column;
   gap: 7px;
   padding: 8px;
-  border-bottom: 1px solid var(--el-border-color);
-  background: var(--el-bg-color);
+  border-bottom: 1px solid var(--el-border-color-light);
+  background: color-mix(in srgb, var(--el-bg-color-overlay) 76%, var(--el-bg-color));
   flex-shrink: 0;
   @include ui-font;
 }

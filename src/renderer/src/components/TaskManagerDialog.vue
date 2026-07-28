@@ -346,17 +346,17 @@ async function save(): Promise<void> {
 
 .tm-body {
   display: flex;
-  height: 460px;
+  height: 520px;
   gap: 0;
-  margin: -14px -16px -16px;
+  margin: 0;
 }
 
 .tm-list {
   flex-shrink: 0;
   display: flex;
   flex-direction: column;
-  padding: 14px 10px;
-  background: var(--el-fill-color-extra-light);
+  padding: 16px 10px;
+  background: var(--el-bg-color);
   border-right: 1px solid var(--el-border-color-light);
 }
 
@@ -370,7 +370,7 @@ async function save(): Promise<void> {
 .tm-list-title {
   font-size: 11px;
   font-weight: 600;
-  letter-spacing: 0.05em;
+  letter-spacing: 0;
   text-transform: uppercase;
   color: var(--el-text-color-secondary);
 }
@@ -427,7 +427,7 @@ async function save(): Promise<void> {
   }
 
   &.active {
-    background: var(--el-color-primary-light-9);
+    background: color-mix(in srgb, var(--el-color-primary) 11%, transparent);
     box-shadow: inset 2px 0 0 var(--el-color-primary);
   }
 }
@@ -504,7 +504,7 @@ async function save(): Promise<void> {
 .tm-detail {
   flex: 1;
   min-width: 0;
-  padding: 20px 24px 16px;
+  padding: 24px 28px 20px;
   display: flex;
   flex-direction: column;
   gap: 14px;

@@ -4,15 +4,20 @@
 // CSS custom properties (--el-color-*, --el-text-color-*, --el-bg-color-*)
 // imported in main.ts, which switch between light/dark via the html.dark class.
 
-$font-ui: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+$font-ui:
+  'Segoe UI Variable',
+  -apple-system,
+  BlinkMacSystemFont,
+  'Segoe UI',
+  sans-serif;
 $font-mono: 'Cascadia Code', 'Fira Code', 'JetBrains Mono', Consolas, monospace;
 $font-term: 'SF Mono', 'Cascadia Code', 'Fira Code', 'JetBrains Mono', Menlo, Consolas, monospace;
 
 $radius-sm: var(--el-border-radius-small);
 $radius: var(--el-border-radius-base);
 $radius-md: var(--el-border-radius-base);
-$radius-lg: var(--el-border-radius-base);
+$radius-lg: 8px;
 
 // Chrome strip height shared by the title bar and the tasks-drawer header so
 // the two read as one continuous bar.
-$titlebar-h: 36px;
+$titlebar-h: 44px;

@@ -17,7 +17,8 @@ import {
   FolderOpen,
   Terminal as TerminalIcon,
   ChevronDown,
-  ChevronRight
+  ChevronRight,
+  Activity
 } from 'lucide-vue-next'
 import SearchOverlay from './SearchOverlay.vue'
 import { useTheme } from '../composables/useTheme'
@@ -53,6 +54,9 @@ function onResizeEnd(_e: MouseEvent, size: number): void {
 const { allTasks: tasks, ready: tasksReady, selectedId, selectTask: setSelectedId } = useTasks()
 
 const selectedTask = computed(() => tasks.value.find((t) => t.id === selectedId.value) || null)
+const runningTaskCount = computed(
+  () => tasks.value.filter((task) => task.status === 'running').length
+)
 
 // --- 任务按 cwd 分组 -----------------------------------------------------
 // TasksDrawer 是"统一管理"入口 —— 全部任务都在这里。按 cwd 分组让用户一眼区分
@@ -470,7 +474,15 @@ function closeLogSearch(): void {
            (shared $titlebar-h + --bg-titlebar token). `no-drag` so the area
            that overlaps the OS title-bar strip stays clickable. -->
       <header class="tasks-header">
-        <span class="tasks-header-title">任务</span>
+        <div class="tasks-header-brand">
+          <span class="tasks-header-icon"><Activity :size="15" /></span>
+          <div>
+            <div class="tasks-header-title">任务控制</div>
+            <div class="tasks-header-subtitle">
+              {{ tasks.length }} 个任务 · {{ runningTaskCount }} 个运行中
+            </div>
+          </div>
+        </div>
         <div class="tasks-header-ops">
           <button class="hdr-btn" title="关闭" @click="emit('update:modelValue', false)">
             <X :size="15" />
@@ -600,26 +612,50 @@ function closeLogSearch(): void {
   -webkit-app-region: no-drag;
 }
 
-/* Header bar — same height/background as the app title bar so the two read
-   as one continuous chrome, and (like the title bar) draggable to move the
-   window. The shell is no-drag; this re-enables drag just for the header. */
+/* The task control header is deliberately taller than the app chrome so the
+   drawer reads as a focused operational surface instead of another toolbar. */
 .tasks-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  height: $titlebar-h;
+  height: 52px;
   flex-shrink: 0;
-  padding: 0 6px 0 14px;
-  background: var(--el-bg-color);
+  padding: 0 10px 0 14px;
+  background: var(--el-bg-color-page);
   border-bottom: 1px solid var(--el-border-color);
   user-select: none;
   -webkit-app-region: drag;
 }
 
+.tasks-header-brand {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+
+.tasks-header-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border: 1px solid color-mix(in srgb, var(--el-color-success) 35%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--el-color-success) 10%, transparent);
+  color: var(--el-color-success);
+}
+
 .tasks-header-title {
   font-size: 12px;
-  font-weight: 600;
-  color: var(--el-text-color-regular);
+  font-weight: 700;
+  color: var(--el-text-color-primary);
+}
+
+.tasks-header-subtitle {
+  margin-top: 1px;
+  color: var(--el-text-color-placeholder);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
 }
 
 .tasks-header-ops {
@@ -639,8 +675,8 @@ function closeLogSearch(): void {
   -webkit-app-region: no-drag;
 
   &:hover {
-    background: var(--el-fill-color);
-    color: var(--el-text-color-primary);
+    background: color-mix(in srgb, var(--el-color-danger) 12%, transparent);
+    color: var(--el-color-danger);
   }
 }
 
@@ -651,18 +687,18 @@ function closeLogSearch(): void {
 }
 
 .tasks-side {
-  width: 320px;
+  width: 330px;
   flex-shrink: 0;
   display: flex;
   flex-direction: column;
-  background: var(--el-bg-color-overlay);
+  background: var(--el-bg-color-page);
   border-right: 1px solid var(--el-border-color);
 }
 
 .task-list {
   flex: 1;
   overflow-y: auto;
-  padding: 4px 6px;
+  padding: 10px 8px;
 }
 
 .task-empty {
@@ -677,16 +713,23 @@ function closeLogSearch(): void {
   align-items: center;
   gap: 8px;
   // 多一点左 padding,让 row 内容相对分组头的 caret + folder icon 有视觉缩进
-  padding: 5px 8px 5px 22px;
-  border-radius: $radius-md;
+  min-height: 48px;
+  margin-bottom: 3px;
+  padding: 7px 8px 7px 22px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: var(--el-bg-color);
   cursor: pointer;
 
   &:hover {
-    background: var(--el-fill-color);
+    border-color: var(--el-border-color-dark);
+    background: var(--el-bg-color-overlay);
   }
 
   &.active {
-    background: var(--el-color-primary-light-9);
+    border-color: color-mix(in srgb, var(--el-color-primary) 45%, transparent);
+    background: color-mix(in srgb, var(--el-color-primary) 8%, var(--el-bg-color));
+    box-shadow: inset 3px 0 0 var(--el-color-primary);
   }
 
   &:hover .task-ops,
@@ -740,12 +783,13 @@ function closeLogSearch(): void {
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 4px 8px 3px;
-  margin-top: 3px;
+  padding: 8px 8px 6px;
+  margin-top: 5px;
   cursor: pointer;
   user-select: none;
   color: var(--el-text-color-secondary);
-  font-size: 11px;
+  font-size: 10px;
+  font-weight: 700;
 
   &:first-child {
     margin-top: 0;
@@ -779,8 +823,8 @@ function closeLogSearch(): void {
   opacity: 0;
   transition: opacity 0.1s;
 
-  /* Per-row command buttons: neutral outlined default (edit), with semantic
-     variants (run/stop/danger) below overriding to filled looks. */
+  /* Keep row actions quiet until hover; semantic variants use tinted surfaces
+     so four adjacent controls do not turn into a row of solid colour. */
   .op-btn {
     @include neutral-outlined-btn;
 
@@ -788,29 +832,26 @@ function closeLogSearch(): void {
       color: var(--el-text-color-primary);
     }
 
-    &.run,
-    &.stop,
-    &.danger {
-      border: none;
-      color: #fff;
-    }
-
-    /* Base semantic colour (not light-3) so the white icon stays readable in
-       the light theme — light-3 would be a pale fill with ~1.6:1 contrast. */
     &.run {
-      background: var(--el-color-success);
+      border-color: color-mix(in srgb, var(--el-color-success) 24%, transparent);
+      background: color-mix(in srgb, var(--el-color-success) 9%, transparent);
+      color: var(--el-color-success);
 
       &:hover {
-        background: var(--el-color-success-light-3);
+        border-color: color-mix(in srgb, var(--el-color-success) 42%, transparent);
+        background: color-mix(in srgb, var(--el-color-success) 15%, transparent);
       }
     }
 
     &.stop,
     &.danger {
-      background: var(--el-color-danger);
+      border-color: color-mix(in srgb, var(--el-color-danger) 24%, transparent);
+      background: color-mix(in srgb, var(--el-color-danger) 9%, transparent);
+      color: var(--el-color-danger);
 
       &:hover {
-        background: var(--el-color-danger-light-3);
+        border-color: color-mix(in srgb, var(--el-color-danger) 42%, transparent);
+        background: color-mix(in srgb, var(--el-color-danger) 15%, transparent);
       }
     }
   }
@@ -851,8 +892,10 @@ function closeLogSearch(): void {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 10px 14px;
+  min-height: 46px;
+  padding: 8px 14px;
   border-bottom: 1px solid var(--el-border-color);
+  background: var(--el-bg-color-page);
 }
 
 .log-head-icon {

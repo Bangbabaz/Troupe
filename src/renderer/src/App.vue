@@ -17,7 +17,8 @@ import {
   PanelLeft,
   Server,
   ShieldCheck,
-  Trash2
+  Trash2,
+  FolderGit2
 } from 'lucide-vue-next'
 import TerminalView from './components/Terminal.vue'
 import TasksDrawer from './components/TasksDrawer.vue'
@@ -456,6 +457,11 @@ const normPath = (p: string | null | undefined): string => {
   return s
 }
 
+const activeWorkspaceLabel = computed(() => {
+  const normalized = activeCwd.value.replace(/\\/g, '/').replace(/\/+$/, '')
+  return normalized.split('/').filter(Boolean).pop() || '未打开目录'
+})
+
 const paneCwdFor = (paneId: string): string => paneCwd.value[paneId] || cwd.value || ''
 
 const openedLocalDirectories = computed(() => {
@@ -810,7 +816,13 @@ onUnmounted(() => {
 <template>
   <div class="title-bar" :class="{ mac: isMac }">
     <div class="title-bar-heading">
-      <span class="title-bar-text">Gittim</span>
+      <div class="title-brand">
+        <span class="title-bar-text">Gittim</span>
+      </div>
+      <div v-if="cwd !== null" class="title-workspace" :title="activeCwd">
+        <FolderGit2 :size="13" />
+        <span class="title-workspace-name">{{ activeWorkspaceLabel }}</span>
+      </div>
       <span v-if="updateProgress !== null" class="title-update-progress">
         下载中 {{ updateProgress }}%
       </span>
@@ -824,32 +836,38 @@ onUnmounted(() => {
       </button>
     </div>
     <div class="title-bar-right">
-      <QuickCommandMenu
-        :commands="quickCommands"
-        :disabled="!activeId"
-        @run="runQuickCommand"
-        @manage="openQuickCommandSettings"
-      />
-      <button class="tb-btn" title="查看任务" @click="openTasksDrawer">
-        <ListChecks :size="14" />
-      </button>
-      <button class="tb-btn" title="SSH 远程终端" @click="openSshDialog">
-        <Server :size="14" />
-      </button>
-      <button class="tb-btn tb-folder" title="打开目录为新面板" @click="onOpenDirectory">
-        <FolderOpen :size="14" />
-      </button>
-      <button
-        v-if="unifiedAgentSessions"
-        class="tb-btn"
-        title="Agent 会话"
-        @click="openUnifiedAgentSessions"
-      >
-        <PanelLeft :size="14" />
-      </button>
-      <button class="tb-btn tb-settings" title="设置" @click="showSettings = true">
-        <SettingsIcon :size="14" />
-      </button>
+      <div class="title-action-group">
+        <QuickCommandMenu
+          :commands="quickCommands"
+          :disabled="!activeId"
+          @run="runQuickCommand"
+          @manage="openQuickCommandSettings"
+        />
+        <button class="tb-btn" title="查看任务" @click="openTasksDrawer">
+          <ListChecks :size="14" />
+        </button>
+      </div>
+      <div class="title-action-group">
+        <button class="tb-btn" title="SSH 远程终端" @click="openSshDialog">
+          <Server :size="14" />
+        </button>
+        <button class="tb-btn tb-folder" title="打开目录为新面板" @click="onOpenDirectory">
+          <FolderOpen :size="14" />
+        </button>
+      </div>
+      <div class="title-action-group">
+        <button
+          v-if="unifiedAgentSessions"
+          class="tb-btn"
+          title="Agent 会话"
+          @click="openUnifiedAgentSessions"
+        >
+          <PanelLeft :size="14" />
+        </button>
+        <button class="tb-btn tb-settings" title="设置" @click="showSettings = true">
+          <SettingsIcon :size="14" />
+        </button>
+      </div>
       <div v-if="!isMac" class="title-bar-controls">
         <button class="tb-btn tb-min" title="最小化" @click="winMinimize">
           <svg width="10" height="10" viewBox="0 0 10 10">
@@ -883,7 +901,7 @@ onUnmounted(() => {
   <el-drawer
     v-model="showSettings"
     direction="rtl"
-    size="560px"
+    size="min(680px, 92vw)"
     :with-header="false"
     class="settings-drawer"
   >
@@ -1479,17 +1497,19 @@ onUnmounted(() => {
           />
         </el-form-item>
       </div>
-      <el-form-item label="Username">
-        <el-input v-model="sshDraft.username" placeholder="root / ubuntu / deploy" />
-      </el-form-item>
-      <el-form-item label="Password">
-        <el-input
-          v-model="sshDraft.password"
-          type="password"
-          show-password
-          :placeholder="sshDraft.hasPassword ? '留空则使用已保存密码' : '可选；留空则手动输入'"
-        />
-      </el-form-item>
+      <div class="ssh-form-grid ssh-credentials-grid">
+        <el-form-item label="Username">
+          <el-input v-model="sshDraft.username" placeholder="root / ubuntu / deploy" />
+        </el-form-item>
+        <el-form-item label="Password">
+          <el-input
+            v-model="sshDraft.password"
+            type="password"
+            show-password
+            :placeholder="sshDraft.hasPassword ? '使用已保存密码' : '可选'"
+          />
+        </el-form-item>
+      </div>
       <el-form-item label="远程目录">
         <el-input v-model="sshDraft.remoteCwd" placeholder="可选，如 /srv/app" />
       </el-form-item>
@@ -1578,11 +1598,11 @@ onUnmounted(() => {
 .title-bar {
   height: $titlebar-h;
   background: var(--el-bg-color-page);
-  border-bottom: 1px solid var(--el-border-color-light);
+  border-bottom: 1px solid var(--el-border-color);
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0 8px;
+  padding: 0 6px 0 10px;
   -webkit-app-region: drag;
   user-select: none;
 
@@ -1593,8 +1613,8 @@ onUnmounted(() => {
 
 .title-bar-text {
   color: var(--el-text-color-primary);
-  font-size: 12.5px;
-  font-weight: 600;
+  font-size: 13px;
+  font-weight: 700;
   @include ui-font;
 }
 
@@ -1602,6 +1622,41 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   gap: 10px;
+  min-width: 0;
+}
+
+.title-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.title-workspace {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  max-width: min(360px, 32vw);
+  height: 28px;
+  padding: 0 8px;
+  border: 1px solid var(--el-border-color-light);
+  border-radius: 7px;
+  background: var(--el-bg-color);
+  color: var(--el-text-color-secondary);
+  font-size: 11px;
+  -webkit-app-region: no-drag;
+  @include ui-font;
+}
+
+.title-workspace-name {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--el-text-color-regular);
+  font-size: 12px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .title-update-progress,
@@ -1634,15 +1689,26 @@ onUnmounted(() => {
 .title-bar-right {
   display: flex;
   align-items: center;
-  gap: 2px;
+  gap: 6px;
   -webkit-app-region: no-drag;
+}
+
+.title-action-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 1px;
+  height: 30px;
+  padding: 1px 2px;
+  border: 1px solid var(--el-border-color-light);
+  border-radius: 7px;
+  background: var(--el-bg-color);
 }
 
 .title-bar-controls {
   display: flex;
-  margin-left: 4px;
-  padding-left: 4px;
-  border-left: 1px solid var(--el-border-color);
+  margin-left: 0;
+  padding-left: 0;
+  border-left: 0;
 }
 
 .tb-folder,
@@ -1659,13 +1725,21 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 34px;
-  height: 28px;
-  color: var(--el-text-color-regular);
-  border-radius: $radius;
+  width: 28px;
+  height: 26px;
+  color: var(--el-text-color-secondary);
+  border-radius: 5px;
+  transition:
+    background-color 0.12s ease,
+    color 0.12s ease;
 
   &:hover {
     background: var(--el-fill-color);
+    color: var(--el-text-color-primary);
+  }
+
+  &:active {
+    background: color-mix(in srgb, var(--el-text-color-primary) 13%, transparent);
   }
 }
 
@@ -1728,15 +1802,26 @@ onUnmounted(() => {
   overflow: clip;
   box-sizing: border-box;
   background: var(--el-bg-color);
-  box-shadow: inset 0 0 0 1px transparent;
-  transition: box-shadow 0.1s;
+  border-radius: 3px;
+  box-shadow: inset 0 0 0 1px var(--el-border-color);
+  transition: box-shadow 0.14s ease;
 
   &.active {
-    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--el-color-primary) 58%, transparent);
+    box-shadow:
+      inset 0 0 0 1px var(--el-color-primary),
+      0 0 0 1px color-mix(in srgb, var(--el-color-primary) 18%, transparent);
 
     .pane-toolbar {
-      background: color-mix(in srgb, var(--el-color-primary) 7%, var(--el-fill-color-light));
-      box-shadow: inset 0 2px 0 var(--el-color-primary);
+      background: color-mix(in srgb, var(--el-color-primary) 7%, var(--el-bg-color-overlay));
+      box-shadow: inset 0 -1px 0 var(--el-border-color);
+    }
+
+    .pane-location-name {
+      color: var(--el-text-color-primary);
+    }
+
+    .pane-location {
+      border-color: color-mix(in srgb, var(--el-color-primary) 44%, var(--el-border-color));
     }
   }
 }
@@ -1745,10 +1830,10 @@ onUnmounted(() => {
   position: absolute;
   background: var(--el-bg-color-page);
   z-index: 1;
-  transition: background-color 0.12s ease;
+  transition: background-color 0.14s ease;
 
   &:hover {
-    background: var(--el-color-primary);
+    background: color-mix(in srgb, var(--el-color-primary) 75%, var(--el-bg-color-page));
   }
 
   .dragging & {
@@ -1761,6 +1846,22 @@ onUnmounted(() => {
 
   &.column {
     cursor: row-resize;
+  }
+}
+
+@media (max-width: 860px) {
+  .title-workspace {
+    max-width: 180px;
+  }
+}
+
+@media (max-width: 700px) {
+  .title-workspace {
+    display: none;
+  }
+
+  .title-bar-right {
+    gap: 3px;
   }
 }
 
@@ -1819,22 +1920,22 @@ onUnmounted(() => {
 }
 
 .settings-sidebar {
-  width: 168px;
+  width: 196px;
   flex-shrink: 0;
   display: flex;
   flex-direction: column;
-  background: var(--el-bg-color-overlay);
-  border-right: 1px solid var(--el-border-color);
-  padding: 14px 0;
+  background: color-mix(in srgb, var(--el-bg-color-overlay) 74%, var(--el-bg-color-page));
+  border-right: 1px solid var(--el-border-color-light);
+  padding: 18px 0;
 }
 
 .settings-sidebar-title {
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.08em;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0;
   text-transform: uppercase;
   color: var(--el-text-color-secondary);
-  padding: 0 18px 12px;
+  padding: 0 18px 16px;
 }
 
 .settings-nav {
@@ -1851,18 +1952,20 @@ onUnmounted(() => {
   gap: 10px;
   text-align: left;
   width: 100%;
-  padding: 6px 12px;
+  min-height: 36px;
+  padding: 7px 12px;
   color: var(--el-text-color-regular);
-  font-size: 13px;
-  border-radius: $radius;
+  font-size: 12px;
+  border-radius: 7px;
 
   &:hover {
     background: var(--el-fill-color);
   }
 
   &.active {
-    background: var(--el-color-primary);
-    color: #fff;
+    background: color-mix(in srgb, var(--el-color-primary) 12%, transparent);
+    color: var(--el-color-primary);
+    box-shadow: inset 2px 0 0 var(--el-color-primary);
   }
 }
 
@@ -1875,7 +1978,7 @@ onUnmounted(() => {
   flex: 1;
   min-width: 0;
   overflow-y: auto;
-  padding: 24px 28px;
+  padding: 30px 34px;
   display: flex;
   flex-direction: column;
   gap: 28px;
@@ -1884,15 +1987,15 @@ onUnmounted(() => {
 .settings-section {
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 16px;
 }
 
 .settings-section-header {
   display: flex;
   align-items: center;
   gap: 6px;
-  padding-bottom: 6px;
-  border-bottom: 1px solid var(--el-border-color);
+  padding-bottom: 9px;
+  border-bottom: 1px solid var(--el-border-color-light);
 }
 
 .settings-section-icon {
@@ -1901,9 +2004,9 @@ onUnmounted(() => {
 
 .settings-section-title {
   margin: 0;
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.06em;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0;
   text-transform: uppercase;
   color: var(--el-text-color-secondary);
 }
@@ -1919,7 +2022,7 @@ onUnmounted(() => {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  min-height: 28px;
+  min-height: 32px;
 
   /* 设置面板下拉框:统一小号字体、紧凑间距 */
   .el-select {
@@ -2153,7 +2256,7 @@ onUnmounted(() => {
   font-size: 22px;
   color: var(--el-text-color-primary);
   font-weight: 600;
-  letter-spacing: 1px;
+  letter-spacing: 0;
 }
 
 .about-tagline {
@@ -2290,15 +2393,20 @@ onUnmounted(() => {
 }
 
 .ssh-dialog {
+  &.el-dialog {
+    border: 1px solid var(--el-border-color);
+    border-radius: 8px;
+  }
+
   .el-dialog__body {
-    padding-top: 8px;
+    padding: 20px 22px 18px;
   }
 }
 
 .ssh-dialog-actions {
   display: flex;
   justify-content: flex-end;
-  gap: 8px;
+  gap: 10px;
 }
 
 .ssh-profile-list {
@@ -2306,7 +2414,9 @@ onUnmounted(() => {
   align-items: center;
   gap: 6px;
   flex-wrap: wrap;
-  margin-bottom: 14px;
+  margin: -4px 0 20px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid var(--el-border-color-light);
 }
 
 .ssh-profile-chip,
@@ -2362,37 +2472,54 @@ onUnmounted(() => {
 
 .ssh-form {
   .el-form-item {
-    margin-bottom: 14px;
+    margin-bottom: 18px;
+  }
+
+  .el-form-item__label {
+    height: auto;
+    margin-bottom: 6px;
+    color: var(--el-text-color-secondary);
+    font-size: 11px;
+    font-weight: 600;
+    line-height: 1.2;
   }
 }
 
 .ssh-form-grid {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 140px;
-  gap: 12px;
+  grid-template-columns: minmax(0, 1fr) 118px;
+  gap: 14px;
+}
+
+.ssh-credentials-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
 .dialog-secondary-btn,
 .dialog-primary-btn {
-  height: 30px;
-  padding: 0 14px;
-  border-radius: $radius;
-  font-size: 13px;
+  min-width: 76px;
+  height: 32px;
+  padding: 0 16px;
+  border-radius: 6px;
+  font-size: 12px;
   cursor: pointer;
   @include ui-font;
 }
 
 .dialog-secondary-btn {
   color: var(--el-text-color-primary);
-  background: var(--el-fill-color);
+  border: 1px solid var(--el-border-color);
+  background: var(--el-bg-color);
 
   &:hover {
     background: var(--el-fill-color-dark);
+    border-color: var(--el-border-color-dark);
   }
 }
 
 .dialog-primary-btn {
-  color: #fff;
+  border: 1px solid var(--el-color-primary);
+  color: var(--el-bg-color-page);
   background: var(--el-color-primary);
 
   &:disabled {

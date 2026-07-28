@@ -18,7 +18,7 @@
   background: color-mix(in srgb, var(--el-color-danger) 14%, transparent);
   border: 1px solid color-mix(in srgb, var(--el-color-danger) 45%, transparent);
   color: var(--el-color-danger);
-  border-radius: var(--el-border-radius-small);
+  border-radius: 6px;
   font-size: 11px;
   @include ui-font;
   font-weight: 600;

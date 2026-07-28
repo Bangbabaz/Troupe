@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { Play, RotateCw, Square, Plus, Settings2 } from 'lucide-vue-next'
+import { ChevronsUpDown, Play, RotateCw, Square, Plus, Settings2 } from 'lucide-vue-next'
 import { useTasks } from '../../composables/useTasks'
 import type { TaskMeta } from '@shared/types'
 
@@ -66,6 +66,7 @@ const stopTask = async (id: string): Promise<void> => {
     popper-class="task-pick-dropdown"
     size="small"
     placeholder="选择命令"
+    :suffix-icon="ChevronsUpDown"
     @update:model-value="onPickCommand"
   >
     <template #prefix>

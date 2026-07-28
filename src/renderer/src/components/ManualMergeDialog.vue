@@ -75,11 +75,19 @@ async function save(): Promise<void> {
         <section class="mm-pane">
           <header>
             <b>我方</b>
-            <el-button size="small" :disabled="versions?.ours == null" @click="useVersion(versions?.ours ?? null)">
+            <el-button
+              size="small"
+              :disabled="versions?.ours == null"
+              @click="useVersion(versions?.ours ?? null)"
+            >
               使用我方作为结果
             </el-button>
           </header>
-          <textarea :value="versions?.ours ?? '（该版本中不存在此文件）'" readonly spellcheck="false" />
+          <textarea
+            :value="versions?.ours ?? '（该版本中不存在此文件）'"
+            readonly
+            spellcheck="false"
+          />
         </section>
         <section class="mm-pane mm-base">
           <header><b>共同祖先</b></header>
@@ -88,11 +96,19 @@ async function save(): Promise<void> {
         <section class="mm-pane">
           <header>
             <b>对方</b>
-            <el-button size="small" :disabled="versions?.theirs == null" @click="useVersion(versions?.theirs ?? null)">
+            <el-button
+              size="small"
+              :disabled="versions?.theirs == null"
+              @click="useVersion(versions?.theirs ?? null)"
+            >
               使用对方作为结果
             </el-button>
           </header>
-          <textarea :value="versions?.theirs ?? '（该版本中不存在此文件）'" readonly spellcheck="false" />
+          <textarea
+            :value="versions?.theirs ?? '（该版本中不存在此文件）'"
+            readonly
+            spellcheck="false"
+          />
         </section>
       </div>
       <section class="mm-result">
@@ -105,19 +121,93 @@ async function save(): Promise<void> {
     </div>
     <template #footer>
       <el-button size="small" @click="emit('update:modelValue', false)">取消</el-button>
-      <el-button size="small" type="primary" :loading="saving" @click="save">应用并标记已解决</el-button>
+      <el-button size="small" type="primary" :loading="saving" @click="save"
+        >应用并标记已解决</el-button
+      >
     </template>
   </el-dialog>
 </template>
 
 <style scoped lang="scss">
-.mm-root { height: 76vh; display: flex; flex-direction: column; gap: 10px; }
-.mm-sources { min-height: 0; flex: 1; display: grid; grid-template-columns: 1fr 0.8fr 1fr; gap: 8px; }
-.mm-pane, .mm-result { min-width: 0; min-height: 0; display: flex; flex-direction: column; border: 1px solid var(--el-border-color); border-radius: 6px; overflow: hidden; }
-header { height: 34px; flex-shrink: 0; display: flex; align-items: center; gap: 10px; padding: 0 10px; background: var(--el-fill-color-light); font-size: 12px; }
-header .el-button { margin-left: auto; }
-header span { color: var(--el-text-color-secondary); }
-textarea { flex: 1; min-height: 0; resize: none; border: 0; outline: 0; padding: 10px; color: var(--el-text-color-primary); background: var(--el-bg-color); font: 12px/1.55 'Cascadia Code', Consolas, monospace; white-space: pre; overflow: auto; }
-.mm-result { flex: 1; }
-.mm-result textarea { background: var(--el-fill-color-extra-light); }
+.mm-root {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.mm-sources {
+  min-height: 0;
+  flex: 1;
+  display: grid;
+  grid-template-columns: 1fr 0.8fr 1fr;
+  gap: 10px;
+}
+
+.mm-pane,
+.mm-result {
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--el-border-color);
+  border-radius: 7px;
+  background: var(--el-bg-color);
+  overflow: hidden;
+}
+
+header {
+  height: 38px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 12px;
+  border-bottom: 1px solid var(--el-border-color-light);
+  background: var(--el-bg-color-overlay);
+  font-size: 11px;
+  flex-shrink: 0;
+}
+
+header b {
+  color: var(--el-text-color-primary);
+  font-weight: 700;
+}
+
+header .el-button {
+  margin-left: auto;
+}
+
+header span {
+  color: var(--el-text-color-secondary);
+}
+
+textarea {
+  min-height: 0;
+  padding: 14px;
+  border: 0;
+  outline: 0;
+  background: var(--el-fill-color-blank);
+  color: var(--el-text-color-primary);
+  font:
+    12px/1.6 'Cascadia Code',
+    Consolas,
+    monospace;
+  resize: none;
+  white-space: pre;
+  overflow: auto;
+  flex: 1;
+}
+
+.mm-result {
+  flex: 1;
+  border-color: color-mix(in srgb, var(--el-color-primary) 35%, var(--el-border-color));
+}
+
+.mm-result header {
+  box-shadow: inset 3px 0 0 var(--el-color-primary);
+}
+
+.mm-result textarea {
+  background: var(--el-bg-color);
+}
 </style>

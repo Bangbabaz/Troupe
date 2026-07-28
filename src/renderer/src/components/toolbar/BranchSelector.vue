@@ -7,7 +7,9 @@ import {
   ArrowUpFromLine,
   ArrowDownToLine,
   CornerDownRight,
-  Trash2
+  Trash2,
+  GitBranch,
+  ChevronsUpDown
 } from 'lucide-vue-next'
 import type { BranchInfo } from '@shared/types'
 
@@ -366,10 +368,14 @@ const switchWithStash = async (): Promise<void> => {
     filterable
     :loading="switching"
     :disabled="switching"
+    :suffix-icon="ChevronsUpDown"
     placeholder="(detached HEAD)"
     @change="onBranchChange"
     @visible-change="(visible: boolean) => visible && emit('refreshBranches')"
   >
+    <template #prefix>
+      <GitBranch :size="12" class="branch-prefix" />
+    </template>
     <template #header>
       <div class="branch-filter-header">
         <el-checkbox :model-value="showLocal" size="small" @update:model-value="toggleLocal">

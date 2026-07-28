@@ -1,45 +1,127 @@
 .pane-toolbar {
   display: flex;
   align-items: center;
-  gap: 3px;
-  height: 34px;
+  gap: 7px;
+  height: 40px;
   padding: 0 7px 0 5px;
-  background: var(--el-fill-color-light);
-  border-bottom: 1px solid var(--el-border-color-light);
+  overflow: hidden;
+  border-bottom: 1px solid var(--el-border-color);
+  background: var(--el-bg-color-overlay);
+  container-type: inline-size;
   flex-shrink: 0;
   user-select: none;
+  @include ui-font;
+}
+
+.pane-identity,
+.pane-toolbar-section {
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+  height: 28px;
+}
+
+.pane-identity {
+  min-width: 96px;
+  max-width: 180px;
+  flex: 0 1 180px;
 }
 
 .pane-drag-handle,
 .browser-btn,
 .session-btn {
-  @include toolbar-icon-button;
+  @include toolbar-icon-button(28px);
 }
 
 .pane-drag-handle {
-  cursor: grab;
+  width: 18px;
+  margin-right: 4px;
+  border-color: transparent;
+  background: transparent;
   color: var(--el-text-color-placeholder);
+  cursor: grab;
 
   &:active {
     cursor: grabbing;
   }
 }
 
+.pane-location {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  width: 100%;
+  max-width: 154px;
+  height: 28px;
+  padding: 0 9px;
+  border: 1px solid var(--el-border-color-light);
+  border-radius: 6px;
+  background: var(--el-bg-color);
+  flex: 1;
+}
+
+.pane-location-icon {
+  flex-shrink: 0;
+  color: var(--el-color-primary);
+}
+
+.pane-location-name {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--el-text-color-regular);
+  font-size: 12px;
+  font-weight: 650;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pane-toolbar-section {
+  gap: 4px;
+  padding-left: 7px;
+  border-left: 1px solid var(--el-border-color);
+  flex-shrink: 0;
+}
+
+.pane-git-section,
+.pane-task-section {
+  padding-right: 0;
+}
+
+.pane-action-section {
+  margin-left: auto;
+
+  :deep(.ide-group) {
+    margin-left: 0;
+  }
+}
+
+.pane-toolbar-spacer {
+  min-width: 2px;
+  flex: 1;
+}
+
+.control-divider {
+  width: 1px;
+  height: 16px;
+  margin: 0 1px;
+  background: var(--el-border-color);
+}
+
 .remote-badge {
   display: inline-flex;
   align-items: center;
   min-width: 0;
-  max-width: 180px;
+  max-width: 150px;
   gap: 5px;
-  height: 24px;
+  height: 28px;
   padding: 0 8px;
-  border: 1px solid var(--el-border-color);
-  border-radius: $radius;
-  color: var(--el-color-primary);
-  background: color-mix(in srgb, var(--el-color-primary) 8%, transparent);
-  font-size: 12px;
+  border: 1px solid color-mix(in srgb, var(--el-color-warning) 38%, var(--el-border-color));
+  border-radius: 6px;
+  color: var(--el-color-warning);
+  background: color-mix(in srgb, var(--el-color-warning) 8%, var(--el-bg-color));
+  font-size: 11px;
   flex-shrink: 1;
-  @include ui-font;
 
   span {
     min-width: 0;
@@ -49,14 +131,67 @@
   }
 }
 
-.toolbar-right-group {
-  margin-left: auto;
-  display: inline-flex;
-  align-items: center;
-  gap: 3px;
-  flex-shrink: 0;
+@container (max-width: 760px) {
+  .pane-toolbar {
+    gap: 5px;
+  }
 
-  .ide-group {
-    margin-left: 0;
+  .pane-location {
+    max-width: 108px;
+  }
+
+  .branch-select,
+  .task-select {
+    width: 116px;
+  }
+
+  .pane-toolbar-section {
+    gap: 3px;
+    padding-left: 5px;
+  }
+}
+
+@container (max-width: 560px) {
+  .pane-toolbar {
+    height: 72px;
+    padding: 5px 6px;
+    overflow-x: auto;
+    align-content: center;
+    flex-wrap: wrap;
+    row-gap: 4px;
+  }
+
+  .pane-identity {
+    order: 1;
+    flex: 1;
+  }
+
+  .pane-action-section {
+    order: 1;
+    margin-left: auto;
+  }
+
+  .pane-git-section,
+  .pane-task-section,
+  .remote-badge {
+    order: 2;
+  }
+
+  .pane-toolbar-spacer {
+    display: none;
+  }
+
+  .pane-location {
+    max-width: 116px;
+  }
+
+  .branch-select,
+  .task-select {
+    width: 104px;
+  }
+
+  .pane-git-section {
+    padding-left: 0;
+    border-left: 0;
   }
 }
