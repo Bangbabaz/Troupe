@@ -1,7 +1,7 @@
 // MCP (Model Context Protocol) HTTP Server —— legacy SSE + Streamable HTTP transports。
 //
 // 监听 127.0.0.1 上的可配置端口，提供终端控制与浏览器自动化工具。
-// Agent 通过 shell 环境变量 GITTIM_PANE_ID 获取自己的 paneId，
+// Agent 通过 shell 环境变量 TROUPE_PANE_ID 获取自己的 paneId，
 // 在每个工具调用中作为 paneId 参数传入，server 据此路由到对应浏览器。
 // 不传 paneId 且仅有一个活跃浏览器时自动匹配（多浏览器时报错提示）。
 //
@@ -118,7 +118,7 @@ const PANE_ID_SCHEMA = {
   paneId: {
     type: 'string',
     description:
-      '当前终端面板的 ID。从环境变量 GITTIM_PANE_ID 读取。' +
+      '当前终端面板的 ID。从环境变量 TROUPE_PANE_ID 读取。' +
       '仅有一个活跃浏览器时可省略（自动匹配）；多个浏览器时必填。'
   }
 } as const
@@ -751,7 +751,7 @@ async function resolvePaneId(args: Record<string, unknown> | undefined): Promise
 
   throw new Error(
     '未找到活跃的浏览器面板。' +
-      '请在工具调用中传入 paneId 参数（从环境变量 GITTIM_PANE_ID 读取），' +
+      '请在工具调用中传入 paneId 参数（从环境变量 TROUPE_PANE_ID 读取），' +
       '首次调用时会自动激活该面板的浏览器。'
   )
 }
@@ -1739,7 +1739,7 @@ async function handleJsonRpc(
           protocolVersion,
           capabilities: { tools: {} },
           serverInfo: {
-            name: `gittim-${session.kind}`,
+            name: `troupe-${session.kind}`,
             version: '0.2.0'
           }
         })
@@ -1929,7 +1929,7 @@ function startMcpServer(kind: McpServerKind, port: number): number {
       return
     }
 
-    // Gittim 当前没有服务端主动消息，因此不为 Streamable HTTP 建立独立 SSE 流。
+    // Troupe 当前没有服务端主动消息，因此不为 Streamable HTTP 建立独立 SSE 流。
     if (req.method === 'GET' && url.pathname === '/mcp') {
       res.writeHead(405, {
         Allow: 'POST, DELETE',

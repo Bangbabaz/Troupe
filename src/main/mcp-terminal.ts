@@ -18,12 +18,12 @@ const SOURCE_PANE_SCHEMA = {
   sourcePaneId: {
     type: 'string',
     description:
-      '发起请求的本地 Gittim 终端面板 ID，从环境变量 GITTIM_PANE_ID 读取。MCP URL 已绑定时可省略。'
+      '发起请求的本地 Troupe 终端面板 ID，从环境变量 TROUPE_PANE_ID 读取。MCP URL 已绑定时可省略。'
   },
   sourceToken: {
     type: 'string',
     description:
-      '当前面板的 Terminal MCP 授权令牌，从环境变量 GITTIM_TERMINAL_MCP_TOKEN 读取。MCP URL 已绑定时可省略。'
+      '当前面板的 Terminal MCP 授权令牌，从环境变量 TROUPE_TERMINAL_MCP_TOKEN 读取。MCP URL 已绑定时可省略。'
   }
 } as const
 
@@ -103,9 +103,9 @@ function resolveSource(
   }
   const paneId = session.paneId || paneArgument
   const token = session.accessToken || tokenArgument
-  if (!paneId) throw new Error('缺少 sourcePaneId，请从环境变量 GITTIM_PANE_ID 读取')
+  if (!paneId) throw new Error('缺少 sourcePaneId，请从环境变量 TROUPE_PANE_ID 读取')
   if (!token) {
-    throw new Error('缺少 sourceToken，请从环境变量 GITTIM_TERMINAL_MCP_TOKEN 读取')
+    throw new Error('缺少 sourceToken，请从环境变量 TROUPE_TERMINAL_MCP_TOKEN 读取')
   }
   if (!verifyPtyTerminalToken(paneId, token)) throw new Error('Terminal MCP 来源令牌无效')
   const source = getPtySessionInfo(paneId)

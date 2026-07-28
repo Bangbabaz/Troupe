@@ -280,12 +280,12 @@ const BROWSER_MCP_HTTP_URL = 'http://127.0.0.1:9876/mcp'
 const AGENT_MCP_HTTP_URL = 'http://127.0.0.1:9877/mcp'
 const TERMINAL_MCP_HTTP_URL = 'http://127.0.0.1:9878/mcp'
 const MCP_CONFIGS = {
-  browserClaude: `claude mcp add -s user -t sse gittim-browser ${BROWSER_MCP_SSE_URL}`,
-  browserCodex: `codex mcp add gittim-browser --url ${BROWSER_MCP_HTTP_URL}`,
-  agentClaude: `claude mcp add -s user -t sse gittim-agent ${AGENT_MCP_SSE_URL}`,
-  agentCodex: `codex mcp add gittim-agent --url ${AGENT_MCP_HTTP_URL}`,
-  terminalClaude: `claude mcp add -s user -t sse gittim-terminal ${TERMINAL_MCP_SSE_URL}`,
-  terminalCodex: `codex mcp add gittim-terminal --url ${TERMINAL_MCP_HTTP_URL}`
+  browserClaude: `claude mcp add -s user -t sse troupe-browser ${BROWSER_MCP_SSE_URL}`,
+  browserCodex: `codex mcp add troupe-browser --url ${BROWSER_MCP_HTTP_URL}`,
+  agentClaude: `claude mcp add -s user -t sse troupe-agent ${AGENT_MCP_SSE_URL}`,
+  agentCodex: `codex mcp add troupe-agent --url ${AGENT_MCP_HTTP_URL}`,
+  terminalClaude: `claude mcp add -s user -t sse troupe-terminal ${TERMINAL_MCP_SSE_URL}`,
+  terminalCodex: `codex mcp add troupe-terminal --url ${TERMINAL_MCP_HTTP_URL}`
 } as const
 type McpCopyTarget = keyof typeof MCP_CONFIGS
 const mcpCopied = ref<McpCopyTarget | null>(null)
@@ -828,7 +828,7 @@ onUnmounted(() => {
   <div class="title-bar" :class="{ mac: isMac }">
     <div class="title-bar-heading">
       <div class="title-brand">
-        <span class="title-bar-text">Gittim</span>
+        <span class="title-bar-text">Troupe</span>
       </div>
       <div v-if="cwd !== null" class="title-workspace" :title="activeCwd">
         <FolderGit2 :size="13" />
@@ -1232,7 +1232,7 @@ onUnmounted(() => {
             </div>
             <p class="settings-item-desc">
               注册完成后，请重新启动或刷新 Agent，使其重新加载 MCP 工具列表。Agent 先从环境变量
-              GITTIM_PANE_ID 读取当前面板 ID，并调用 agent_register({ name, paneId })
+              TROUPE_PANE_ID 读取当前面板 ID，并调用 agent_register({ name, paneId })
               注册名称；之后用 agent_list、agent_send 和 agent_reply 协作，消息会直接唤醒目标
               Agent。
             </p>
@@ -1422,7 +1422,7 @@ onUnmounted(() => {
               <h3 class="settings-section-title">关于</h3>
             </header>
             <div class="about-block">
-              <div class="about-logo">Gittim</div>
+              <div class="about-logo">Troupe</div>
               <div class="about-tagline">Git + tmux 风格的终端模拟器</div>
             </div>
             <dl class="about-list">
@@ -1436,7 +1436,7 @@ onUnmounted(() => {
               </div>
               <div class="about-row">
                 <dt>配置文件</dt>
-                <dd class="mono">~/.gittim/settings.json</dd>
+                <dd class="mono">~/.troupe/settings.json</dd>
               </div>
             </dl>
             <div class="about-update">

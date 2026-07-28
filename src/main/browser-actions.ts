@@ -172,7 +172,7 @@ export async function selectOption(
           var t = (c.textContent || '').trim();
           if (t === search || t.includes(search)) {
             // 生成临时唯一标识
-            if (!c.id) c.id = '__gittim_tmp_' + i;
+            if (!c.id) c.id = '__troupe_tmp_' + i;
             return { found: true, selector: '#' + c.id };
           }
         }

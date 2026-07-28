@@ -30,13 +30,13 @@ let cache: Settings | null = null
 let writeTimer: NodeJS.Timeout | null = null
 
 const home = app.getPath('home')
-const NEW_DIR = '.gittim'
-const OLD_DIR = '.Gittim'
+const CONFIG_DIR = '.troupe'
+const LEGACY_CONFIG_DIRS = ['.Gittim', '.gittim'] as const
 
 // 配置使用固定的用户目录，而不是 Electron userData。这样产品名变化或重装应用时，
-// 布局、任务和偏好仍然位于可预测、便于备份的 ~/.gittim/settings.json。
+// 布局、任务和偏好仍然位于可预测、便于备份的 ~/.troupe/settings.json。
 function settingsDir(): string {
-  return join(home, NEW_DIR)
+  return join(home, CONFIG_DIR)
 }
 
 function settingsPath(): string {
@@ -44,46 +44,49 @@ function settingsPath(): string {
 }
 
 /**
- * 将旧的 ~/.Gittim 迁移为 ~/.gittim。
+ * 将旧版的 ~/.Gittim 或 ~/.gittim 迁移为 ~/.troupe。
  *
- * Windows 默认不区分文件名大小写，直接检查两个路径会把同一个目录误判成
- * “新旧目录并存”。这里枚举 HOME 下的真实目录名，并通过临时目录完成大小写改名。
- *
- * 在大小写敏感的文件系统上，如果新旧目录确实同时存在，则将旧配置合并到新目录，
- * 复制成功后再删除旧目录。旧配置优先，避免升级时生成的默认值覆盖用户数据。
+ * 枚举 HOME 下的真实目录名，避免 Windows 将两个仅大小写不同的旧目录误判为
+ * 同时存在。若新旧目录并存，则将旧配置合并到新目录；旧配置优先，避免升级时
+ * 生成的默认值覆盖用户数据。
  */
-function migrateOldConfigDir(): void {
-  const oldPath = join(home, OLD_DIR)
-  const newPath = join(home, NEW_DIR)
-
+function migrateLegacyConfigDirs(): void {
   try {
     const dirs = readdirSync(home, { withFileTypes: true })
-    const hasOld = dirs.some((entry) => entry.isDirectory() && entry.name === OLD_DIR)
-    const hasNew = dirs.some((entry) => entry.isDirectory() && entry.name === NEW_DIR)
-    if (!hasOld) return
+    const legacyNames = LEGACY_CONFIG_DIRS.filter((name) =>
+      dirs.some((entry) => entry.isDirectory() && entry.name === name)
+    )
+    if (!legacyNames.length) return
 
-    if (hasNew) {
-      cpSync(oldPath, newPath, { recursive: true, force: true })
-      rmSync(oldPath, { recursive: true, force: true })
-      console.info(`[Gittim] 已合并并删除旧配置目录: ${oldPath} → ${newPath}`)
-      return
-    }
+    const newPath = join(home, CONFIG_DIR)
+    let hasNew = dirs.some((entry) => entry.isDirectory() && entry.name === CONFIG_DIR)
 
-    const tempPath = join(home, `.gittim-migrate-${process.pid}-${Date.now()}`)
-    renameSync(oldPath, tempPath)
-    try {
-      renameSync(tempPath, newPath)
-    } catch (err) {
-      renameSync(tempPath, oldPath)
-      throw err
+    for (const legacyName of legacyNames) {
+      const oldPath = join(home, legacyName)
+      if (hasNew) {
+        cpSync(oldPath, newPath, { recursive: true, force: true })
+        rmSync(oldPath, { recursive: true, force: true })
+        console.info(`[Troupe] 已合并并删除旧配置目录: ${oldPath} → ${newPath}`)
+        continue
+      }
+
+      const tempPath = join(home, `.troupe-migrate-${process.pid}-${Date.now()}`)
+      renameSync(oldPath, tempPath)
+      try {
+        renameSync(tempPath, newPath)
+        hasNew = true
+      } catch (err) {
+        renameSync(tempPath, oldPath)
+        throw err
+      }
+      console.info(`[Troupe] 配置目录已迁移: ${oldPath} → ${newPath}`)
     }
-    console.info(`[Gittim] 配置目录已迁移: ${oldPath} → ${newPath}`)
   } catch (err) {
-    console.error('[Gittim] 配置目录迁移失败:', err)
+    console.error('[Troupe] 配置目录迁移失败:', err)
   }
 }
 
-migrateOldConfigDir()
+migrateLegacyConfigDirs()
 
 export function readSettings(): Settings {
   if (cache) return cache

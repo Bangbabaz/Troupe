@@ -658,7 +658,7 @@ async function extractIconMac(command: string, ideId?: string): Promise<string |
 
   // mkdtemp + rm rather than a static name so parallel detect calls (the
   // Promise.all in detectIdes) don't clobber each other.
-  const dir = await mkdtemp(join(tmpdir(), 'gittim-icon-'))
+  const dir = await mkdtemp(join(tmpdir(), 'troupe-icon-'))
   const pngPath = join(dir, 'icon.png')
   try {
     await execFileP('sips', ['-s', 'format', 'png', '-Z', '96', icnsPath, '--out', pngPath], {
@@ -998,7 +998,7 @@ function openSystemTerminal(cwd: string): Promise<{ success: boolean; error?: st
  * paths to .exe on Windows so we can spawn the GUI process directly without
  * cmd.exe middleman — no flashing console, no orphan intermediates.
  * macOS .app bundles go through `open -a` so Finder does the right thing.
- * Detached + stdio 'ignore' so closing Gittim doesn't drag the IDE down.
+ * Detached + stdio 'ignore' so closing Troupe doesn't drag the IDE down.
  */
 export function openIde(ideId: string, cwd: string): Promise<{ success: boolean; error?: string }> {
   if (ideId === 'os-terminal') return openSystemTerminal(cwd)

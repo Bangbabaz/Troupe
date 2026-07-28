@@ -170,7 +170,7 @@ function createWindow(): void {
   const win = new BrowserWindow({
     ...bounds,
     show: false,
-    title: 'Gittim',
+    title: 'Troupe',
     autoHideMenuBar: true,
     // macOS gets the system traffic-light buttons; win/linux gets our custom
     // HTML buttons rendered in App.vue.
@@ -230,7 +230,7 @@ function createWindow(): void {
 }
 
 app.whenReady().then(() => {
-  electronApp.setAppUserModelId('com.gittim.app')
+  electronApp.setAppUserModelId('com.troupe.app')
 
   app.on('browser-window-created', (_, window) => {
     optimizer.watchWindowShortcuts(window)
@@ -483,9 +483,9 @@ app.whenReady().then(() => {
     // macOS 截图进剪贴板是 PNG;Windows 截图一般是 BMP/PNG,统一写 PNG。
     const png = img.toPNG()
     if (!png || png.length === 0) return null
-    const dir = join(tmpdir(), 'gittim-paste')
+    const dir = join(tmpdir(), 'troupe-paste')
     await mkdir(dir, { recursive: true })
-    const name = `gittim-paste-${Date.now()}-${randomBytes(4).toString('hex')}.png`
+    const name = `troupe-paste-${Date.now()}-${randomBytes(4).toString('hex')}.png`
     const filePath = join(dir, name)
     await writeFile(filePath, png)
     return filePath

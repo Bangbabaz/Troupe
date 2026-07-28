@@ -182,7 +182,8 @@ const canGoForward = ref(false)
 const proxyPanelOpen = ref(false)
 const proxySaving = ref(false)
 const proxyError = ref('')
-const proxyStorageKey = `gittim:browser-resource-proxy:${props.paneId}`
+const proxyStorageKey = `troupe:browser-resource-proxy:${props.paneId}`
+const legacyProxyStorageKey = `gittim:browser-resource-proxy:${props.paneId}`
 const DEFAULT_LOCAL_PORT = 5173
 const proxyActionOptions = [
   { label: '代理', value: 'proxy' },
@@ -222,7 +223,14 @@ function loadProxyConfig(): BrowserResourceProxyConfig {
     rules: []
   }
   try {
-    const stored = localStorage.getItem(proxyStorageKey)
+    let stored = localStorage.getItem(proxyStorageKey)
+    if (!stored) {
+      stored = localStorage.getItem(legacyProxyStorageKey)
+      if (stored) {
+        localStorage.setItem(proxyStorageKey, stored)
+        localStorage.removeItem(legacyProxyStorageKey)
+      }
+    }
     if (!stored) return defaults
     const parsed = JSON.parse(stored) as Record<string, unknown>
     const rawRules = Array.isArray(parsed.rules)
@@ -325,6 +333,7 @@ async function applyProxyConfig(): Promise<void> {
     Object.assign(proxyDraft, applied)
     proxyApplied.value = applied.enabled
     localStorage.setItem(proxyStorageKey, JSON.stringify(applied))
+    localStorage.removeItem(legacyProxyStorageKey)
     await reload()
   } catch (error) {
     proxyError.value = error instanceof Error ? error.message : String(error)

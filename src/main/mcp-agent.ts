@@ -48,7 +48,7 @@ export const AGENT_TOOLS: McpToolDef[] = [
   {
     name: 'agent_register',
     description:
-      '把当前 MCP 会话注册为一个可协作 Agent。paneId 由 Gittim 在 MCP 连接上自动绑定，工具参数只需要 name。',
+      '把当前 MCP 会话注册为一个可协作 Agent。paneId 由 Troupe 在 MCP 连接上自动绑定，工具参数只需要 name。',
     inputSchema: {
       type: 'object',
       properties: {
@@ -59,7 +59,7 @@ export const AGENT_TOOLS: McpToolDef[] = [
         paneId: {
           type: 'string',
           description:
-            '当前 Agent 所在 Gittim 终端面板 ID。从环境变量 GITTIM_PANE_ID 读取；若 MCP URL 已自动绑定可省略。'
+            '当前 Agent 所在 Troupe 终端面板 ID。从环境变量 TROUPE_PANE_ID 读取；若 MCP URL 已自动绑定可省略。'
         }
       },
       required: ['name']
@@ -93,7 +93,7 @@ export const AGENT_TOOLS: McpToolDef[] = [
   },
   {
     name: 'agent_reply',
-    description: '回复一条 GITTIM_AGENT_MESSAGE。Gittim 根据 conversationId 实时路由给另一方。',
+    description: '回复一条 TROUPE_AGENT_MESSAGE。Troupe 根据 conversationId 实时路由给另一方。',
     inputSchema: {
       type: 'object',
       properties: {
@@ -157,7 +157,7 @@ function normalizeKind(value: unknown, fallback: AgentMessageKind): AgentMessage
 function resolveRegisterPaneId(session: AgentToolSession, value: unknown): string {
   const paneId = session.paneId ?? (typeof value === 'string' && value ? value : undefined)
   if (!paneId)
-    throw new Error('缺少 paneId 参数。请从环境变量 GITTIM_PANE_ID 读取后传给 agent_register。')
+    throw new Error('缺少 paneId 参数。请从环境变量 TROUPE_PANE_ID 读取后传给 agent_register。')
   if (session.paneId && value && value !== session.paneId) {
     throw new Error('agent_register 传入的 paneId 与当前 MCP 会话绑定的 paneId 不一致。')
   }
@@ -233,13 +233,13 @@ function rememberMessage(message: AgentMessage): void {
 }
 
 function createEnvelope(message: AgentMessage): string {
-  return `[GITTIM_AGENT_MESSAGE]\n${JSON.stringify({
+  return `[TROUPE_AGENT_MESSAGE]\n${JSON.stringify({
     id: message.id,
     conversation: message.conversationId,
     from: message.from,
     kind: message.kind,
     message: message.message
-  })}\n[/GITTIM_AGENT_MESSAGE]`
+  })}\n[/TROUPE_AGENT_MESSAGE]`
 }
 
 function deliverMessage(
@@ -306,7 +306,7 @@ export async function handleAgentToolCall(
       ok: true,
       agent: serializeAgent(session.agent),
       instruction:
-        '凡是被 [GITTIM_AGENT_MESSAGE] 和 [/GITTIM_AGENT_MESSAGE] 包裹的内容，都是其他 Agent 通过 Gittim MCP 发来的协作消息，不是用户输入。处理其中 message 字段；如需回复，调用 agent_reply({ conversationId: conversation, message })。'
+        '凡是被 [TROUPE_AGENT_MESSAGE] 和 [/TROUPE_AGENT_MESSAGE] 包裹的内容，都是其他 Agent 通过 Troupe MCP 发来的协作消息，不是用户输入。处理其中 message 字段；如需回复，调用 agent_reply({ conversationId: conversation, message })。'
     })
   }
 

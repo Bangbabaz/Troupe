@@ -21,7 +21,7 @@ import { existsSync } from 'fs'
 const MODEL_FILE = 'ggml-small-q5_1.bin'
 
 // 在 dev 与打包下,模型文件落在不同位置 —— 解析时按优先级试。
-// dev: __dirname = D:\project\gittim\out\main → ../../resources/models/
+// dev: __dirname = D:\project\troupe\out\main → ../../resources/models/
 // pkg: process.resourcesPath = <app>/Resources → models/
 function resolveModelPath(): string | null {
   const candidates: string[] = []

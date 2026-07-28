@@ -111,8 +111,8 @@ function defaultShell(): string {
     // Default to Windows PowerShell on Windows. PowerShell ships with every
     // modern Windows install (5.1 in System32, 7+ as `pwsh` if installed) and
     // gives users a richer prompt + tab-completion than cmd.exe. The user can
-    // override via GITTIM_SHELL if they prefer cmd, pwsh, or git-bash.
-    return process.env.GITTIM_SHELL || 'powershell.exe'
+    // override via TROUPE_SHELL if they prefer cmd, pwsh, or git-bash.
+    return process.env.TROUPE_SHELL || process.env.GITTIM_SHELL || 'powershell.exe'
   }
   // macOS Catalina+(2019)默认 shell 是 zsh,bash 已被 Apple 标记为 deprecated。
   // 实际触发概率很低(process.env.SHELL 一般都设了);但 fallback 用 zsh 比 bash
@@ -194,7 +194,7 @@ function buildSshSpawn(opts: PtyStartOpts): {
   if (remoteCwd) {
     const quoted = shellQuotePosix(remoteCwd)
     args.push(
-      `if ! cd -- ${quoted}; then printf '\\033[33m[Gittim] remote directory not found: %s\\033[0m\\n' ${quoted}; fi; exec "\${SHELL:-/bin/sh}" -l`
+      `if ! cd -- ${quoted}; then printf '\\033[33m[Troupe] remote directory not found: %s\\033[0m\\n' ${quoted}; fi; exec "\${SHELL:-/bin/sh}" -l`
     )
   }
   return {
@@ -250,19 +250,33 @@ export function startPty(webContents: WebContents, opts: PtyStartOpts): void {
     terminalMcpToken = randomBytes(32).toString('hex')
 
     // 注入 paneId 和两个 MCP 端口，让 Agent 子进程能区分协作与浏览器端点。
-    env.GITTIM_PANE_ID = opts.paneId
-    // 兼容旧版本：通用变量仍指向原有的浏览器 MCP 端口。
-    env.GITTIM_MCP_PORT = String(BROWSER_MCP_PORT)
-    env.GITTIM_AGENT_MCP_PORT = String(AGENT_MCP_PORT)
-    env.GITTIM_BROWSER_MCP_PORT = String(BROWSER_MCP_PORT)
-    env.GITTIM_TERMINAL_MCP_PORT = String(TERMINAL_MCP_PORT)
-    env.GITTIM_TERMINAL_MCP_TOKEN = terminalMcpToken
-    env.GITTIM_AGENT_MCP_URL = `http://127.0.0.1:${AGENT_MCP_PORT}/sse?paneId=${encodeURIComponent(opts.paneId)}`
-    env.GITTIM_BROWSER_MCP_URL = `http://127.0.0.1:${BROWSER_MCP_PORT}/sse`
-    env.GITTIM_TERMINAL_MCP_URL = `http://127.0.0.1:${TERMINAL_MCP_PORT}/sse?paneId=${encodeURIComponent(opts.paneId)}&token=${terminalMcpToken}`
-    env.GITTIM_AGENT_MCP_HTTP_URL = `http://127.0.0.1:${AGENT_MCP_PORT}/mcp?paneId=${encodeURIComponent(opts.paneId)}`
-    env.GITTIM_BROWSER_MCP_HTTP_URL = `http://127.0.0.1:${BROWSER_MCP_PORT}/mcp`
-    env.GITTIM_TERMINAL_MCP_HTTP_URL = `http://127.0.0.1:${TERMINAL_MCP_PORT}/mcp?paneId=${encodeURIComponent(opts.paneId)}&token=${terminalMcpToken}`
+    env.TROUPE_PANE_ID = opts.paneId
+    // 通用变量仍指向浏览器 MCP 端口，保留现有调用约定。
+    env.TROUPE_MCP_PORT = String(BROWSER_MCP_PORT)
+    env.TROUPE_AGENT_MCP_PORT = String(AGENT_MCP_PORT)
+    env.TROUPE_BROWSER_MCP_PORT = String(BROWSER_MCP_PORT)
+    env.TROUPE_TERMINAL_MCP_PORT = String(TERMINAL_MCP_PORT)
+    env.TROUPE_TERMINAL_MCP_TOKEN = terminalMcpToken
+    env.TROUPE_AGENT_MCP_URL = `http://127.0.0.1:${AGENT_MCP_PORT}/sse?paneId=${encodeURIComponent(opts.paneId)}`
+    env.TROUPE_BROWSER_MCP_URL = `http://127.0.0.1:${BROWSER_MCP_PORT}/sse`
+    env.TROUPE_TERMINAL_MCP_URL = `http://127.0.0.1:${TERMINAL_MCP_PORT}/sse?paneId=${encodeURIComponent(opts.paneId)}&token=${terminalMcpToken}`
+    env.TROUPE_AGENT_MCP_HTTP_URL = `http://127.0.0.1:${AGENT_MCP_PORT}/mcp?paneId=${encodeURIComponent(opts.paneId)}`
+    env.TROUPE_BROWSER_MCP_HTTP_URL = `http://127.0.0.1:${BROWSER_MCP_PORT}/mcp`
+    env.TROUPE_TERMINAL_MCP_HTTP_URL = `http://127.0.0.1:${TERMINAL_MCP_PORT}/mcp?paneId=${encodeURIComponent(opts.paneId)}&token=${terminalMcpToken}`
+
+    // 一版兼容别名，避免已配置的 Agent 脚本在升级后立刻失效。
+    env.GITTIM_PANE_ID = env.TROUPE_PANE_ID
+    env.GITTIM_MCP_PORT = env.TROUPE_MCP_PORT
+    env.GITTIM_AGENT_MCP_PORT = env.TROUPE_AGENT_MCP_PORT
+    env.GITTIM_BROWSER_MCP_PORT = env.TROUPE_BROWSER_MCP_PORT
+    env.GITTIM_TERMINAL_MCP_PORT = env.TROUPE_TERMINAL_MCP_PORT
+    env.GITTIM_TERMINAL_MCP_TOKEN = env.TROUPE_TERMINAL_MCP_TOKEN
+    env.GITTIM_AGENT_MCP_URL = env.TROUPE_AGENT_MCP_URL
+    env.GITTIM_BROWSER_MCP_URL = env.TROUPE_BROWSER_MCP_URL
+    env.GITTIM_TERMINAL_MCP_URL = env.TROUPE_TERMINAL_MCP_URL
+    env.GITTIM_AGENT_MCP_HTTP_URL = env.TROUPE_AGENT_MCP_HTTP_URL
+    env.GITTIM_BROWSER_MCP_HTTP_URL = env.TROUPE_BROWSER_MCP_HTTP_URL
+    env.GITTIM_TERMINAL_MCP_HTTP_URL = env.TROUPE_TERMINAL_MCP_HTTP_URL
   }
 
   // node-pty's `name` option sets TERM on Unix, but on Windows it only labels
@@ -457,7 +471,7 @@ export async function killPty(paneId: string): Promise<void> {
 
 /**
  * Kill every live PTY pane and its descendant tree. Called from `before-quit`
- * so dev servers / Claude Code / vim 等长期 PTY 子进程不会在 Gittim 关闭后逃逸。
+ * so dev servers / Claude Code / vim 等长期 PTY 子进程不会在 Troupe 关闭后逃逸。
  *
  * 不能依赖 webContents.once('destroyed') 兜底:`before-quit` 触发时 main 已经
  * 在收尾,destroy handler 内调用的 killPty 是 async 但不被 await,
@@ -880,7 +894,7 @@ export async function gitHasUncommittedChanges(cwd: string): Promise<boolean> {
  */
 export async function gitStash(cwd: string): Promise<GitResult> {
   try {
-    await execFileP('git', ['stash', 'push', '-m', 'Gittim: 切换分支前自动暂存'], {
+    await execFileP('git', ['stash', 'push', '-m', 'Troupe: 切换分支前自动暂存'], {
       ...GIT_OPTS,
       cwd
     })
@@ -1286,7 +1300,7 @@ export async function resolveConflictBySide(
 
 /**
  * Mark a conflicted file as resolved (user edited it externally — e.g. in
- * their IDE — and wants Gittim to `git add` it). No checkout, just add.
+ * their IDE — and wants Troupe to `git add` it). No checkout, just add.
  */
 export async function markConflictResolved(cwd: string, file: string): Promise<GitResult> {
   try {

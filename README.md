@@ -1,7 +1,7 @@
-# Gittim
+# Troupe
 
 <p align="center">
-  <img src="resources/icon.png" width="120" alt="Gittim logo" />
+  <img src="resources/icon.png" width="120" alt="Troupe logo" />
 </p>
 
 <p align="center">
@@ -14,7 +14,7 @@
 
 ---
 
-Gittim 是一个基于 Electron 和 xterm.js 的跨平台终端应用。它把常用的 Git 操作、
+Troupe 是一个基于 Electron 和 xterm.js 的跨平台终端应用。它把常用的 Git 操作、
 工作树、长期运行命令、浏览器预览和 AI Agent 协作集中在一个窗口中，适合同时维护
 多个分支、多个开发服务或多个编码 Agent 的工作方式。
 
@@ -57,7 +57,7 @@ Gittim 是一个基于 Electron 和 xterm.js 的跨平台终端应用。它把�
 
 ### MCP 与 Agent 协作
 
-Gittim 内置三个本地 MCP 服务：
+Troupe 内置三个本地 MCP 服务：
 
 | 服务         | Claude Code (SSE)           | Codex (Streamable HTTP)     | 用途                                       |
 | ------------ | --------------------------- | --------------------------- | ------------------------------------------ |
@@ -68,36 +68,36 @@ Gittim 内置三个本地 MCP 服务：
 Claude Code 示例：
 
 ```bash
-claude mcp add -s user -t sse gittim-browser http://127.0.0.1:9876/sse
-claude mcp add -s user -t sse gittim-agent http://127.0.0.1:9877/sse
-claude mcp add -s user -t sse gittim-terminal http://127.0.0.1:9878/sse
+claude mcp add -s user -t sse troupe-browser http://127.0.0.1:9876/sse
+claude mcp add -s user -t sse troupe-agent http://127.0.0.1:9877/sse
+claude mcp add -s user -t sse troupe-terminal http://127.0.0.1:9878/sse
 ```
 
 Codex 示例：
 
 ```bash
-codex mcp add gittim-browser --url http://127.0.0.1:9876/mcp
-codex mcp add gittim-agent --url http://127.0.0.1:9877/mcp
-codex mcp add gittim-terminal --url http://127.0.0.1:9878/mcp
+codex mcp add troupe-browser --url http://127.0.0.1:9876/mcp
+codex mcp add troupe-agent --url http://127.0.0.1:9877/mcp
+codex mcp add troupe-terminal --url http://127.0.0.1:9878/mcp
 ```
 
-也可以在 Gittim 的“设置 → MCP”中直接复制对应命令。
+也可以在 Troupe 的“设置 → MCP”中直接复制对应命令。
 
-Agent MCP 使用简化协作协议。Gittim 会在每个终端里注入 `GITTIM_PANE_ID`，Agent 注册时只需要：
+Agent MCP 使用简化协作协议。Troupe 会在每个终端里注入 `TROUPE_PANE_ID`，Agent 注册时只需要：
 
 - `agent_register({ name, paneId })` 注册一个轻量名称，例如 `planner`、`reviewer`；`paneId`
-  从环境变量 `GITTIM_PANE_ID` 读取
+  从环境变量 `TROUPE_PANE_ID` 读取
 - `agent_list()` 查看当前在线且已注册的 Agent
 - `agent_send({ to, message, kind? })` 按注册名发送消息并唤醒目标 Agent
 - `agent_reply({ conversationId, message, kind? })` 回复收到的协作消息
 
 目标只会从已注册 Agent 中实时解析，不暴露普通终端面板。收到
-`[GITTIM_AGENT_MESSAGE] ... [/GITTIM_AGENT_MESSAGE]` 包裹的内容时，应视为其他 Agent
-通过 Gittim MCP 发来的协作消息，而不是用户输入。
+`[TROUPE_AGENT_MESSAGE] ... [/TROUPE_AGENT_MESSAGE]` 包裹的内容时，应视为其他 Agent
+通过 Troupe MCP 发来的协作消息，而不是用户输入。
 
 Terminal MCP 使用 `terminal_list_ssh` 发现已打开的 SSH 面板，使用 `terminal_read`
 按游标增量读取输出，使用 `terminal_execute_command` 提交单条完整命令。命令写入 PTY
-前由 Gittim 强制检查来源目录权限；未配置时每次询问，“始终允许”会按来源目录、SSH
+前由 Troupe 强制检查来源目录权限；未配置时每次询问，“始终允许”会按来源目录、SSH
 配置和完整命令保存精确规则。目录默认策略和已保存规则可在“设置 → SSH 权限”中管理。
 
 ### 离线语音输入
@@ -136,7 +136,7 @@ Terminal MCP 使用 `terminal_list_ssh` 发现已打开的 SSH 面板，使用 `
 
 ## 安装
 
-从 [GitHub Releases](https://github.com/Bangbabaz/Gittim/releases) 下载对应平台的安装包：
+从 [GitHub Releases](https://github.com/Bangbabaz/Troupe/releases) 下载对应平台的安装包：
 
 - Windows：NSIS 安装程序
 - macOS：DMG
@@ -147,8 +147,8 @@ Terminal MCP 使用 `terminal_list_ssh` 发现已打开的 SSH 面板，使用 `
 需要 Node.js、Yarn 1.x，以及平台对应的原生模块编译环境。
 
 ```bash
-git clone https://github.com/Bangbabaz/Gittim.git
-cd Gittim
+git clone https://github.com/Bangbabaz/Troupe.git
+cd Troupe
 ```
 
 Windows 首次安装依赖时必须使用包装脚本，它会为 MSVC 设置 UTF-8 编译参数：
@@ -184,11 +184,11 @@ yarn build:linux  # Linux 安装包
 用户配置保存在：
 
 ```text
-~/.gittim/settings.json
+~/.troupe/settings.json
 ```
 
 其中包括窗口状态、面板布局、后台命令、快捷指令、主题和其他偏好。旧版本使用的
-`~/.Gittim` 会在应用启动时自动迁移到全小写目录。
+`~/.gittim` 或 `~/.Gittim` 会在应用启动时自动迁移到 `~/.troupe`。
 
 语音模型存放在 `resources/models`，不提交到 Git，由下载脚本和打包流程管理。
 
@@ -204,5 +204,5 @@ yarn build:linux  # Linux 安装包
 
 ## 项目状态
 
-Gittim 仍在持续开发中。欢迎通过
-[Issues](https://github.com/Bangbabaz/Gittim/issues) 提交问题、功能建议或平台兼容性反馈。
+Troupe 仍在持续开发中。欢迎通过
+[Issues](https://github.com/Bangbabaz/Troupe/issues) 提交问题、功能建议或平台兼容性反馈。

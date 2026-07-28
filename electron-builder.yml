@@ -1,5 +1,5 @@
-appId: com.gittim.app
-productName: gittim
+appId: com.troupe.app
+productName: Troupe
 directories:
   buildResources: build
 files:
@@ -19,7 +19,7 @@ extraResources:
     filter:
       - '*.bin'
 win:
-  executableName: gittim
+  executableName: troupe
 nsis:
   oneClick: false
   allowToChangeInstallationDirectory: true
@@ -51,6 +51,6 @@ npmRebuild: false
 publish:
   provider: github
   owner: Bangbabaz
-  repo: Gittim
+  repo: Troupe
 electronDownload:
   mirror: https://npmmirror.com/mirrors/electron/
