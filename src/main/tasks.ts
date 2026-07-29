@@ -3,6 +3,7 @@ import { WebContents, app } from 'electron'
 import { statSync } from 'fs'
 import { readSettings, updateSettings } from './settings'
 import { killProcessTree } from './proc'
+import { createTerminalEnvironment } from './terminal-env'
 import type { TaskDef, TaskMeta, TaskStatus } from '@shared/types'
 import type { TaskOutputSnapshot } from '@shared/types'
 
@@ -196,7 +197,7 @@ function spawnPty(t: Task): void {
   // PWD pinned to this task's cwd and the stale INIT_CWD dropped. Without this,
   // tools that trust $PWD/$INIT_CWD (npm) inherit whatever dir Electron was
   // launched from, so the same `npm run dev` in two folders looks identical.
-  const env: Record<string, string> = { ...(process.env as Record<string, string>) }
+  const env = createTerminalEnvironment(process.env)
   env.PWD = cwd
   delete env.INIT_CWD
 

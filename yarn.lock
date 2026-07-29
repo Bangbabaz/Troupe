@@ -1458,10 +1458,10 @@
   resolved "https://registry.yarnpkg.com/@xterm/addon-webgl/-/addon-webgl-0.19.0.tgz#02533c3f7c0af3ac9a44bbb095cbd47d48e90c25"
   integrity sha512-b3fMOsyLVuCeNJWxolACEUED0vm7qC0cy4wRvf3oURSzDTYVQiGPhTnhWZwIHdvC48Y+oLhvYXnY4XDXPoJo6A==
 
-"@xterm/xterm@^6.0.0":
-  version "6.0.0"
-  resolved "https://registry.npmjs.org/@xterm/xterm/-/xterm-6.0.0.tgz"
-  integrity sha512-TQwDdQGtwwDt+2cgKDLn0IRaSxYu1tSUjgKarSDkUM0ZNiSRXFpjxEsvc/Zgc5kq5omJ+V0a8/kIM2WD3sMOYg==
+"@xterm/xterm@^6.1.0-beta.167":
+  version "6.1.0-beta.292"
+  resolved "https://registry.yarnpkg.com/@xterm/xterm/-/xterm-6.1.0-beta.292.tgz#a22da60a6bfa8f5c24db21ab48da5babc4615422"
+  integrity sha512-17zqK5tM/l6qeD7McF42OrEJ6w3XqJ2vFVKdWqu0cYLzdFqMWAHp2oFNc8Fj5DmqDSl1E1FZEg6IFflDllTvLA==
 
 abbrev@1:
   version "1.1.1"

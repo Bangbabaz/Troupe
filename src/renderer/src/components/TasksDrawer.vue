@@ -4,7 +4,7 @@ import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import { SearchAddon } from '@xterm/addon-search'
 import { enableWebglRenderer, waitForTerminalFonts } from '../utils/xtermRenderer'
-import { TerminalInputHandler } from '../utils/terminalKeyboard'
+import { TERMINAL_VT_EXTENSIONS, TerminalInputHandler } from '../utils/terminalKeyboard'
 import { ElMessageBox } from 'element-plus'
 import {
   Play,
@@ -178,6 +178,7 @@ function ensureTerm(): void {
     // Required for SearchAddon match decorations (the highlight background)
     // to render — same as the terminal panes.
     allowProposedApi: true,
+    vtExtensions: TERMINAL_VT_EXTENSIONS,
     windowsPty: platform === 'win32' ? { backend: 'conpty', buildNumber: windowsBuild } : undefined,
     theme: xtermTheme.value
   })

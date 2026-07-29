@@ -14,7 +14,10 @@ function loadTypeScript(relativePath) {
   return loaded.exports
 }
 
-const { TerminalInputHandler } = loadTypeScript('src/renderer/src/utils/terminalKeyboard.ts')
+const { TERMINAL_VT_EXTENSIONS, TerminalInputHandler } = loadTypeScript(
+  'src/renderer/src/utils/terminalKeyboard.ts'
+)
+const { createTerminalEnvironment } = loadTypeScript('src/main/terminal-env.ts')
 const { createShortcutDefs, eventToShortcut, shortcutDisplayParts, shortcutMatches } =
   loadTypeScript('src/renderer/src/shortcuts.ts')
 
@@ -31,6 +34,46 @@ function key(overrides = {}) {
     isComposing: false,
     ...overrides
   }
+}
+
+assert.deepEqual(TERMINAL_VT_EXTENSIONS, {
+  kittyKeyboard: true,
+  win32InputMode: true
+})
+
+// Every supported desktop platform declares its default terminal identity,
+// while an identity inherited from the launch environment always wins.
+{
+  assert.deepEqual(createTerminalEnvironment({}, 'win32'), {
+    TERM: 'xterm-256color',
+    COLORTERM: 'truecolor',
+    TERM_PROGRAM: 'Windows_Terminal',
+    WT_SESSION: 'default'
+  })
+  assert.deepEqual(createTerminalEnvironment({}, 'darwin'), {
+    TERM: 'xterm-256color',
+    COLORTERM: 'truecolor',
+    TERM_PROGRAM: 'Apple_Terminal'
+  })
+  assert.deepEqual(createTerminalEnvironment({}, 'linux'), {
+    TERM: 'xterm-256color',
+    COLORTERM: 'truecolor',
+    TERM_PROGRAM: 'x-terminal-emulator'
+  })
+  assert.deepEqual(createTerminalEnvironment({ TERMINAL: 'kitty' }, 'linux'), {
+    TERMINAL: 'kitty',
+    TERM: 'xterm-256color',
+    COLORTERM: 'truecolor',
+    TERM_PROGRAM: 'kitty'
+  })
+
+  const inherited = {
+    TERM: 'screen-256color',
+    COLORTERM: '24bit',
+    TERM_PROGRAM: 'WezTerm',
+    WT_SESSION: 'existing-session'
+  }
+  assert.deepEqual(createTerminalEnvironment(inherited, 'win32'), inherited)
 }
 
 // Printable keys and IME events stay on xterm's native composition path.

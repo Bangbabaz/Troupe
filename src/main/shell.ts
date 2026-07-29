@@ -7,6 +7,7 @@ import { readlinkSync, statSync, readFileSync, existsSync } from 'fs'
 import { readFile, rm, writeFile } from 'fs/promises'
 import { basename, dirname, join, relative, resolve } from 'path'
 import { shellIntegration } from './shell-integration'
+import { createTerminalEnvironment } from './terminal-env'
 import { AGENT_MCP_PORT, BROWSER_MCP_PORT, TERMINAL_MCP_PORT } from './mcp-config'
 import { killProcessTree } from './proc'
 import { readSettings } from './settings'
@@ -279,13 +280,7 @@ export function startPty(webContents: WebContents, opts: PtyStartOpts): void {
     env.GITTIM_TERMINAL_MCP_HTTP_URL = env.TROUPE_TERMINAL_MCP_HTTP_URL
   }
 
-  // node-pty's `name` option sets TERM on Unix, but on Windows it only labels
-  // the PTY object. Advertise the emulated terminal explicitly so full-screen
-  // clients enable capabilities such as bracketed paste under ConPTY.
-  if (isWindows) {
-    env.TERM ||= 'xterm-256color'
-    env.COLORTERM ||= 'truecolor'
-  }
+  env = createTerminalEnvironment(env)
 
   const pty = spawn(shell, args, {
     name: 'xterm-256color',

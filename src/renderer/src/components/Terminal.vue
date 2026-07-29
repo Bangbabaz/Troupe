@@ -7,7 +7,7 @@ import { SearchAddon } from '@xterm/addon-search'
 import { WebLinksAddon } from '@xterm/addon-web-links'
 import { Unicode11Addon } from '@xterm/addon-unicode11'
 import { enableWebglRenderer, waitForTerminalFonts } from '../utils/xtermRenderer'
-import { TerminalInputHandler } from '../utils/terminalKeyboard'
+import { TERMINAL_VT_EXTENSIONS, TerminalInputHandler } from '../utils/terminalKeyboard'
 import {
   Copy,
   ClipboardPaste,
@@ -155,10 +155,11 @@ const terminal = new Terminal({
     "'SF Mono', 'Cascadia Code', 'Fira Code', 'JetBrains Mono', Menlo, Consolas, monospace",
   cursorBlink: true,
   rightClickSelectsWord: false,
-  allowProposedApi: true,
   windowsPty: platform === 'win32' ? { backend: 'conpty', buildNumber: windowsBuild } : undefined,
   theme: xtermTheme.value,
-  ...props.options
+  ...props.options,
+  allowProposedApi: true,
+  vtExtensions: TERMINAL_VT_EXTENSIONS
 })
 
 const fitAddon = new FitAddon()

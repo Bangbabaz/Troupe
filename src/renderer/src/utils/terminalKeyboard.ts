@@ -1,5 +1,10 @@
 export type TerminalKeyAction = { kind: 'write'; data: string }
 
+export const TERMINAL_VT_EXTENSIONS = {
+  kittyKeyboard: true,
+  win32InputMode: true
+} as const
+
 /**
  * Small compatibility layer for key sequences xterm does not translate the
  * same way as native terminals. Printable text and IME composition stay fully
