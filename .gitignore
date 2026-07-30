@@ -5,9 +5,6 @@ out
 .eslintcache
 *.log*
 
-# Whisper 模型由 scripts/fetch-whisper-model.mjs 拉取,不入仓。
-resources/models/*.bin
-
 src/renderer/auto-imports.d.ts
 src/renderer/components.d.ts
 .eslintrc-auto-import.json

@@ -243,8 +243,10 @@ export interface Settings {
   /** 浏览器抽屉宽度(px),默认 480。 */
   browserDrawerWidth?: number
   theme?: ThemePref
-  /** 主工具栏 "在 IDE 中打开" 上次选中的 IDE id。 */
+  /** 旧版本全局 IDE 选择，仅用于迁移到 paneSelectedIdeIds。 */
   defaultIde?: string
+  /** 每个终端面板的 IDE 打开方式，key 为 paneId。 */
+  paneSelectedIdeIds?: Record<string, string>
   /** 每个终端面板最后选中的后台任务 ID，key 为 paneId。 */
   paneSelectedTaskIds?: Record<string, string>
   /**
@@ -255,12 +257,6 @@ export interface Settings {
   cachedIdes?: IdeInfo[]
   /** 非默认快捷键绑定,key = ShortcutAction。 */
   shortcutOverrides?: Record<string, string>
-  /** STT 识别语言,默认 'zh'。可选 'zh' | 'en' | 'auto'。 */
-  sttLanguage?: string
-  /** 语音输入设备 ID,空字符串表示系统默认。 */
-  sttDeviceId?: string
-  /** 语音输入 PTT 快捷键,默认 'F2'。 */
-  voiceShortcut?: string
   /** 自动更新开关,默认 true。关闭后不检查也不下载。 */
   autoUpdate?: boolean
   /** 点击后向当前激活终端执行或填入的快捷指令。 */
@@ -271,25 +267,6 @@ export interface Settings {
   sshDirectoryPermissions?: Record<string, SshDirectoryPolicy>
   /** 用户在审批弹窗中选择“始终允许”后保存的精确命令规则。 */
   sshCommandPermissions?: SshCommandPermission[]
-}
-
-// ---------------------------------------------------------------------------
-// Speech-to-Text (whisper.cpp 内置语音输入)
-// ---------------------------------------------------------------------------
-
-export interface SttTranscribeOpts {
-  /** 16kHz mono Float32 PCM,值域 [-1, 1]。 */
-  pcm: Float32Array
-  /** ISO 语言码或 'auto'。默认 'auto'。 */
-  language?: string
-}
-
-export interface SttResult {
-  ok: boolean
-  /** 识别文本(已 trim,空白片段全部合并)。 */
-  text?: string
-  /** 模型未就绪 / native binding 加载失败 / 解码失败时的人类可读信息。 */
-  error?: string
 }
 
 // ---------------------------------------------------------------------------

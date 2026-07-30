@@ -3,7 +3,8 @@ import type { IdeInfo } from '@shared/types'
 
 const ides = ref<IdeInfo[]>([])
 const loading = ref(false)
-const defaultIdeId = ref<string | null>(null)
+const paneIdeIds = ref<Record<string, string>>({})
+let legacyDefaultIdeId: string | null = null
 let initPromise: Promise<void> | null = null
 
 async function load(force = false): Promise<IdeInfo[]> {
@@ -21,30 +22,39 @@ function init(): Promise<void> {
   if (initPromise) return initPromise
   initPromise = (async () => {
     const [settings] = await Promise.all([window.api.settingsGet(), load(false)])
-    defaultIdeId.value = typeof settings.defaultIde === 'string' ? settings.defaultIde : null
+    paneIdeIds.value = { ...(settings.paneSelectedIdeIds || {}) }
+    legacyDefaultIdeId = typeof settings.defaultIde === 'string' ? settings.defaultIde : null
   })()
   return initPromise
 }
 
-function setDefault(id: string): void {
-  if (defaultIdeId.value === id) return
-  defaultIdeId.value = id
-  window.api.settingsSet({ defaultIde: id })
+function setSelected(paneId: string, id: string): void {
+  if (paneIdeIds.value[paneId] === id) return
+  const next = { ...paneIdeIds.value, [paneId]: id }
+  paneIdeIds.value = next
+  window.api.settingsSet({ paneSelectedIdeIds: next })
 }
 
-const defaultIde = computed<IdeInfo | null>(() => {
-  if (!ides.value.length) return null
-  return ides.value.find((item) => item.id === defaultIdeId.value) ?? ides.value[0]
-})
-
-export function useIdes(): {
+export function useIdes(paneId: string): {
   ides: Ref<IdeInfo[]>
   loading: Ref<boolean>
-  defaultIdeId: Ref<string | null>
-  defaultIde: ComputedRef<IdeInfo | null>
+  selectedIde: ComputedRef<IdeInfo | null>
   init: () => Promise<void>
   load: (force?: boolean) => Promise<IdeInfo[]>
-  setDefault: (id: string) => void
+  setSelected: (id: string) => void
 } {
-  return { ides, loading, defaultIdeId, defaultIde, init, load, setDefault }
+  const selectedIde = computed<IdeInfo | null>(() => {
+    if (!ides.value.length) return null
+    const selectedId = paneIdeIds.value[paneId] ?? legacyDefaultIdeId
+    return ides.value.find((item) => item.id === selectedId) ?? ides.value[0]
+  })
+
+  return {
+    ides,
+    loading,
+    selectedIde,
+    init,
+    load,
+    setSelected: (id: string) => setSelected(paneId, id)
+  }
 }

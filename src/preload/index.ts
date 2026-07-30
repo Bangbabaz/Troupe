@@ -21,7 +21,6 @@ import type {
   PtyStartOpts,
   PtyDataPayload,
   PtyExitPayload,
-  SttResult,
   TaskDataPayload,
   TaskIdPayload,
   TaskOutputSnapshot,
@@ -222,11 +221,6 @@ const api = {
     ipcRenderer.on('task-removed', listener)
     return () => ipcRenderer.removeListener('task-removed', listener)
   },
-
-  // ---- Speech-to-Text ----------------------------------------------------
-  sttTranscribe: (opts: { pcm: Float32Array; language?: string }) =>
-    ipcRenderer.invoke('stt-transcribe', opts) as Promise<SttResult>,
-  sttModelExists: () => ipcRenderer.invoke('stt-model-exists') as Promise<boolean>,
 
   // ---- IDE + file manager ------------------------------------------------
   ideList: (force?: boolean) => ipcRenderer.invoke('ide-list', force) as Promise<IdeInfo[]>,

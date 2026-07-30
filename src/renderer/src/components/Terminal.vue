@@ -23,10 +23,8 @@ import {
 import PaneToolbar from './PaneToolbar.vue'
 import BrowserDrawer from './BrowserDrawer.vue'
 import SearchOverlay from './SearchOverlay.vue'
-import RecordingIndicator from './RecordingIndicator.vue'
 import AgentSessionsDrawer from './AgentSessionsDrawer.vue'
 import { useTheme } from '../composables/useTheme'
-import { useVoiceInput } from '../composables/useVoiceInput'
 import { DEFAULT_SHORTCUTS, shortcutDisplayParts, shortcutMatches } from '../shortcuts'
 import type { ShortcutAction } from '../shortcuts'
 import type { AgentSessionInfo } from '@shared/types'
@@ -47,9 +45,6 @@ const props = withDefaults(
     fontSize?: number
     scrollback?: number
     shortcuts?: Record<string, string>
-    sttLanguage?: string
-    sttDeviceId?: string
-    voiceShortcut?: string
     /**
      * 父级 layout 中本 pane 是否为 active。activeId 变化(Alt+方向键切焦、点击其它
      * pane、新建 worktree 自动 active 新 pane)会让这个 prop 翻转 —— 翻 true 时
@@ -66,9 +61,6 @@ const props = withDefaults(
     fontSize: DEFAULT_FONT_SIZE,
     scrollback: DEFAULT_SCROLLBACK,
     shortcuts: () => ({}),
-    sttLanguage: 'zh',
-    sttDeviceId: '',
-    voiceShortcut: 'F2',
     isActive: false
   }
 )
@@ -176,54 +168,6 @@ terminal.loadAddon(searchAddon)
 terminal.loadAddon(webLinksAddon)
 terminal.loadAddon(unicode11Addon)
 terminal.unicode.activeVersion = '11'
-
-// ----- 语音输入 -----------------------------------------------------------
-// useVoiceInput 内部封装麦克风采集、AudioContext 重采样到 16kHz、IPC 发到
-// main 进程的 whisper.cpp 识别。这里只负责:
-//   1. 把结果通过 terminal.paste() 走 bracketed-paste —— ptyWrite 会绕过
-//      xterm 的 \e[200~/[201~ 包装,Claude Code 拿不到 [Pasted +N lines] chip,
-//      vim 会触发 auto-indent,bash 会逐行执行多行内容。CLAUDE.md 里专门强调。
-//   2. 把 voice.state 镜像到一个本地 indicatorState,done/error 自动消失。
-const {
-  state: voiceState,
-  level: voiceLevel,
-  message: voiceMessage,
-  start: voiceStart,
-  stop: voiceStop,
-  cancel: voiceCancel
-} = useVoiceInput({
-  language: props.sttLanguage || 'zh',
-  deviceId: props.sttDeviceId || '',
-  onResult: (text) => {
-    terminal.paste(text)
-  }
-})
-
-type IndicatorState = 'recording' | 'transcribing' | 'done' | 'error'
-const indicatorState = ref<IndicatorState | null>(null)
-let indicatorTimer: ReturnType<typeof setTimeout> | null = null
-
-watch(voiceState, (s) => {
-  if (indicatorTimer) {
-    clearTimeout(indicatorTimer)
-    indicatorTimer = null
-  }
-  if (s === 'idle') {
-    indicatorState.value = null
-    return
-  }
-  indicatorState.value = s
-  if (s === 'done' || s === 'error') {
-    // done 1.2s,error 多停 1s 让用户看清再消失。
-    indicatorTimer = setTimeout(
-      () => {
-        indicatorState.value = null
-        indicatorTimer = null
-      },
-      s === 'error' ? 2500 : 1200
-    )
-  }
-})
 
 // Propagate cwd changes up so App.vue can persist them in paneCwd / settings.
 // Fires for every distinct value, including the initial sync from props.cwd.
@@ -440,19 +384,6 @@ const closeSearch = (): void => {
 // xterm's default handling. Also call preventDefault() on shortcuts that the
 // browser/Electron might otherwise grab (Ctrl+D bookmark, etc).
 terminal.attachCustomKeyEventHandler((e): boolean => {
-  // Voice PTT:keydown(开始) + keyup(结束),通过 settings.voiceShortcut 配置。
-  // shortcutMatches 对 F2 这类功能键同样生效(eventToShortcut fallback 到 e.key)。
-  // e.repeat 在按住时会持续触发 keydown,只接首次 down。
-  const voiceKey = props.voiceShortcut || 'F2'
-  if (shortcutMatches(voiceKey, e, platform)) {
-    e.preventDefault()
-    if (e.type === 'keydown' && !e.repeat) {
-      void voiceStart()
-    } else if (e.type === 'keyup') {
-      void voiceStop()
-    }
-    return false
-  }
   const inputAction = terminalInput.handleKeyEvent(e)
   if (inputAction?.kind === 'write') {
     e.preventDefault()
@@ -858,11 +789,6 @@ onUnmounted(() => {
   unsubscribeExit?.()
   unsubscribeBrowserActivate?.()
   unsubscribeTerminalMcpInput?.()
-  void voiceCancel()
-  if (indicatorTimer) {
-    clearTimeout(indicatorTimer)
-    indicatorTimer = null
-  }
   window.api.ptyKill(props.paneId)
   terminal.dispose()
 })
@@ -896,12 +822,6 @@ onUnmounted(() => {
       />
       <div class="terminal-area">
         <div ref="terminalRef" class="terminal-container" @click="onTerminalClick"></div>
-        <RecordingIndicator
-          v-if="indicatorState"
-          :state="indicatorState"
-          :level="voiceLevel"
-          :message="voiceMessage"
-        />
         <div v-if="showSearch" class="search-pos">
           <SearchOverlay :search-addon="searchAddon" :result-limit="200" @close="closeSearch" />
         </div>

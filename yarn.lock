@@ -272,7 +272,7 @@
     minimist "^1.2.6"
     plist "^3.0.5"
 
-"@electron/rebuild@^4.0.3", "@electron/rebuild@^4.0.4":
+"@electron/rebuild@^4.0.3":
   version "4.0.4"
   resolved "https://registry.yarnpkg.com/@electron/rebuild/-/rebuild-4.0.4.tgz#a61331d9ae3b8e2c7eddca8e446fcd7fcd60e4ce"
   integrity sha512-Rzc39XPdk/+/wBG8MfwAHohXflep0ITUfulb6Rgz3R0NeSB1noE+E9/M/cb8ftCAiyDD9PPhLuuWgE1GaInbKg==
@@ -3834,13 +3834,6 @@ smart-buffer@^4.0.2:
   version "4.2.0"
   resolved "https://registry.yarnpkg.com/smart-buffer/-/smart-buffer-4.2.0.tgz#6e1d71fa4f18c05f7d0ff216dd16a481d0e8d9ae"
   integrity sha512-94hK0Hh8rPqQl2xXc3HsaBoOXKV20MToPkcXvwbISWLEs+64sBq5kFgn2kJDHb1Pry9yrP0dxrCI9RRci7RXKg==
-
-smart-whisper@^0.8.1:
-  version "0.8.1"
-  resolved "https://registry.yarnpkg.com/smart-whisper/-/smart-whisper-0.8.1.tgz#e7502179e937d297d085474a8f6ded62ee4417fa"
-  integrity sha512-0DnhD6Hq7kTpWAJxv057o8rkcZ2Sv2/ZpJZJjj/DT+8Ll/zH5EHQM1lSwk+W15AvfDPD3K2ku+MD2KCXD51z5A==
-  dependencies:
-    node-addon-api "^7.0.0"
 
 "source-map-js@>=0.6.2 <2.0.0", source-map-js@^1.2.1:
   version "1.2.1"

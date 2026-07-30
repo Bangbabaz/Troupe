@@ -5,44 +5,47 @@ import { ChevronDown, FolderClosed, RefreshCw, SquareTerminal } from 'lucide-vue
 import { iconFor } from '../ideIcons'
 import { useIdes } from '../../composables/useIdes'
 
-// "在 IDE 中打开"控件 —— 左边一个品牌色 chip(打开默认 IDE)+ 右边小 caret
-// (下拉切换 IDE)。chosen IDE 持久化到 settings.defaultIde,下次启动直接命中。
+// "在 IDE 中打开"控件 —— 左边一个品牌色 chip(打开当前面板选择的 IDE)+ 右边小 caret
+// (下拉切换 IDE)。每个面板的选择按 paneId 独立持久化。
 //
 // **不依赖 git** —— 任何 cwd 都能用,PaneToolbar 在 isRepo / 非 isRepo 时都
 // 渲染。
 
 const props = defineProps<{
+  paneId: string
   cwd: string
 }>()
 
 const {
   ides,
   loading: ideLoading,
-  defaultIde,
+  selectedIde,
   init: initIdes,
   load: loadIdes,
-  setDefault
-} = useIdes()
+  setSelected
+} = useIdes(props.paneId)
 
-const defaultIdeIcon = computed(() =>
-  defaultIde.value ? iconFor(defaultIde.value.id, defaultIde.value.name) : null
+const selectedIdeIcon = computed(() =>
+  selectedIde.value ? iconFor(selectedIde.value.id, selectedIde.value.name) : null
 )
 
 onMounted(() => void initIdes())
 
 async function openWithIde(id: string): Promise<void> {
   if (!props.cwd) return
+  await initIdes()
   const r = await window.api.ideOpen(id, props.cwd)
   if (!r.success) {
     ElMessage.error(r.error || '打开 IDE 失败')
     return
   }
-  setDefault(id)
+  setSelected(id)
 }
 
-const openDefaultIde = async (): Promise<void> => {
-  if (!defaultIde.value) return
-  await openWithIde(defaultIde.value.id)
+const openSelectedIde = async (): Promise<void> => {
+  await initIdes()
+  if (!selectedIde.value) return
+  await openWithIde(selectedIde.value.id)
 }
 
 const onPickIde = async (cmd: string): Promise<void> => {
@@ -58,41 +61,41 @@ const onPickIde = async (cmd: string): Promise<void> => {
 <template>
   <div class="ide-group">
     <el-tooltip
-      :content="defaultIde ? `在 ${defaultIde.name} 中打开` : '在文件管理器中打开'"
+      :content="selectedIde ? `在 ${selectedIde.name} 中打开` : '在文件管理器中打开'"
       placement="bottom"
       :show-after="300"
     >
       <button
         class="ide-chip"
-        :class="{ 'has-real-icon': !!defaultIde?.iconDataUrl }"
+        :class="{ 'has-real-icon': !!selectedIde?.iconDataUrl }"
         :disabled="ideLoading"
         :style="
-          defaultIde?.iconDataUrl
+          selectedIde?.iconDataUrl
             ? undefined
-            : defaultIdeIcon
-              ? { color: defaultIdeIcon.color }
+            : selectedIdeIcon
+              ? { color: selectedIdeIcon.color }
               : undefined
         "
-        @click="openDefaultIde"
+        @click="openSelectedIde"
       >
         <img
-          v-if="defaultIde?.iconDataUrl"
+          v-if="selectedIde?.iconDataUrl"
           class="ide-chip-img"
-          :src="defaultIde.iconDataUrl"
+          :src="selectedIde.iconDataUrl"
           alt=""
           draggable="false"
         />
-        <SquareTerminal v-else-if="defaultIde?.id === 'os-terminal'" :size="12" />
+        <SquareTerminal v-else-if="selectedIde?.id === 'os-terminal'" :size="12" />
         <svg
-          v-else-if="defaultIdeIcon && defaultIdeIcon.path"
+          v-else-if="selectedIdeIcon && selectedIdeIcon.path"
           class="ide-chip-svg"
           viewBox="0 0 24 24"
           aria-hidden="true"
         >
-          <path :d="defaultIdeIcon.path" fill="currentColor" />
+          <path :d="selectedIdeIcon.path" fill="currentColor" />
         </svg>
-        <span v-else-if="defaultIdeIcon" class="ide-chip-letter">
-          {{ defaultIdeIcon.letter }}
+        <span v-else-if="selectedIdeIcon" class="ide-chip-letter">
+          {{ selectedIdeIcon.letter }}
         </span>
         <FolderClosed v-else :size="13" />
       </button>
@@ -113,7 +116,7 @@ const onPickIde = async (cmd: string): Promise<void> => {
             :key="ide.id"
             :command="ide.id"
             :title="ide.command"
-            :class="{ picked: ide.id === defaultIde?.id }"
+            :class="{ picked: ide.id === selectedIde?.id }"
           >
             <span
               class="ide-row-icon"

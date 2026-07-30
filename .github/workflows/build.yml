@@ -21,11 +21,6 @@ jobs:
             platform: linux
     runs-on: ${{ matrix.os }}
 
-    env:
-      # MSVC 中文代码页不识别 whisper.cpp 的 UTF-8 源文件，必须在编译
-      # 时加 /utf-8。non-Windows 平台无害（env var 被忽略）。
-      CL: /utf-8
-
     steps:
       - uses: actions/checkout@v4
 
@@ -39,11 +34,8 @@ jobs:
 
       - name: Install dependencies
         run: yarn install --frozen-lockfile
-        env:
-          HF_MIRROR: hf-mirror.com
 
       - name: Build & Publish
         run: yarn build:${{ matrix.platform }} --publish always
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          HF_MIRROR: hf-mirror.com

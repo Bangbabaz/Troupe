@@ -76,7 +76,6 @@ import {
 } from './tasks'
 import { initAutoUpdater, checkForUpdates, installUpdate } from './updater'
 import { detectIdes, openIde, hydrateIdeCache } from './ide'
-import { transcribePcm, disposeStt, sttModelExists } from './stt'
 import {
   registerBrowser,
   unregisterBrowser,
@@ -122,6 +121,8 @@ app.commandLine.appendSwitch('disable-renderer-backgrounding')
 app.commandLine.appendSwitch('disable-background-timer-throttling')
 
 let mainWindow: BrowserWindow | null = null
+const MIN_WINDOW_WIDTH = 800
+const MIN_WINDOW_HEIGHT = 600
 
 function visibleApprovalText(value: string): string {
   return Array.from(value, (char) => {
@@ -169,6 +170,8 @@ function createWindow(): void {
 
   const win = new BrowserWindow({
     ...bounds,
+    minWidth: MIN_WINDOW_WIDTH,
+    minHeight: MIN_WINDOW_HEIGHT,
     show: false,
     title: 'Troupe',
     autoHideMenuBar: true,
@@ -236,15 +239,12 @@ app.whenReady().then(() => {
     optimizer.watchWindowShortcuts(window)
   })
 
-  // 允许 renderer 调用:
-  //   - getUserMedia 拿麦克风(语音输入功能)。Chromium 把麦克风 + 摄像头都归
-  //     为 'media' permission,不放行 mac 上会静默 deny,getUserMedia 报
-  //     NotAllowedError。
-  //   - navigator.clipboard.readText / writeText(粘贴等系统快捷键)。Electron
+  // 允许 renderer 调用 navigator.clipboard.readText / writeText(粘贴等系统快捷键)。
+  // Electron
   //     默认拒绝 'clipboard-read' / 'clipboard-sanitized-write',readText() 抛错
   //     被空 catch 吞掉,表现为 Cmd/Ctrl+V 无反应。
   // 其它权限请求(notifications、geolocation 等)一律拒绝。
-  const allowedPermissions = new Set(['media', 'clipboard-read', 'clipboard-sanitized-write'])
+  const allowedPermissions = new Set(['clipboard-read', 'clipboard-sanitized-write'])
   session.defaultSession.setPermissionRequestHandler((_wc, permission, callback) => {
     callback(allowedPermissions.has(permission))
   })
@@ -685,21 +685,6 @@ app.whenReady().then(() => {
   ipcMain.handle('update-check', () => checkForUpdates())
   ipcMain.on('update-install', () => installUpdate())
 
-  // ----- Speech-to-Text ----------------------------------------------------
-  // renderer 录完一段就发完整 PCM(Float32, 16kHz, mono)过来。IPC 走结构化克隆,
-  // typed array 直接传,无需 Base64。返回值即转写结果。
-  ipcMain.handle(
-    'stt-transcribe',
-    async (_event, opts: { pcm: Float32Array; language?: string }) => {
-      const pcm = opts?.pcm
-      if (!(pcm instanceof Float32Array)) {
-        return { ok: false, error: 'PCM 数据无效' }
-      }
-      return transcribePcm(pcm, opts.language || 'auto')
-    }
-  )
-  ipcMain.handle('stt-model-exists', () => sttModelExists())
-
   ipcMain.handle('read-package-scripts', (_event, cwd: string): Record<string, string> => {
     try {
       const path = join(cwd, 'package.json')
@@ -776,7 +761,7 @@ async function runCleanup(): Promise<void> {
         // 已在收尾,async killPty 没人 await,killProcessTree 起的 PowerShell
         // snapshot 会被 main 退出打断,detached 的孙子(Nx workers / vite /
         // dev server)随之逃逸。这里两边一起 await 直到全部杀完。
-        await Promise.all([killAllTasks(), killAllPtyTrees(), disposeStt(), disposeAllBrowsers()])
+        await Promise.all([killAllTasks(), killAllPtyTrees(), disposeAllBrowsers()])
         stopMcpServers()
       } finally {
         flushSettings()

@@ -230,8 +230,7 @@ async function onConflictDetected(): Promise<void> {
       <span>{{ props.remoteLabel || 'SSH' }}</span>
     </div>
 
-    <!-- 任务运行 / IDE 启动:无论是否 git 都显示。语音输入只走快捷键(默认 F2),
-         不再渲染按钮 —— 录音中浮在 pane 底部的 RecordingIndicator 就是反馈。 -->
+    <!-- 任务运行 / IDE 启动:无论是否 git 都显示。 -->
     <div v-if="!props.isRemote" class="pane-toolbar-section pane-task-section">
       <TaskRunner
         :pane-id="props.paneId"
@@ -253,7 +252,7 @@ async function onConflictDetected(): Promise<void> {
           <Bot :size="14" />
         </button>
       </el-tooltip>
-      <IdeLauncher v-if="!props.isRemote" :cwd="props.cwd" />
+      <IdeLauncher v-if="!props.isRemote" :pane-id="props.paneId" :cwd="props.cwd" />
     </div>
   </div>
 </template>

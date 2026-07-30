@@ -4,6 +4,7 @@
   "description": "Git + tmux 风格的终端模拟器，支持分屏、分支切换与工作树管理",
   "main": "./out/main/index.js",
   "author": "Bangbabaz",
+  "license": "MIT",
   "repository": {
     "type": "git",
     "url": "https://github.com/Bangbabaz/Troupe"
@@ -21,9 +22,6 @@
     "build:win": "npm run build && electron-builder --win",
     "build:mac": "npm run build && electron-builder --mac",
     "build:linux": "npm run build && electron-builder --linux",
-    "prepare-stt": "node scripts/fetch-whisper-model.mjs && node scripts/rebuild-stt.mjs",
-    "fetch-models": "node scripts/fetch-whisper-model.mjs",
-    "rebuild-stt": "node scripts/rebuild-stt.mjs --force",
     "postinstall": "node -e \"const fs=require('fs'),p=require('path');for(const d of ['darwin-arm64','darwin-x64','linux-arm64','linux-x64']){const f=p.join('node_modules/node-pty/prebuilds',d,'spawn-helper');try{fs.chmodSync(f,0o755)}catch{}}\""
   },
   "dependencies": {
@@ -44,14 +42,10 @@
     "sass": "^1.99.0",
     "shiki": "^4.1.0"
   },
-  "optionalDependencies": {
-    "smart-whisper": "^0.8.1"
-  },
   "devDependencies": {
     "@electron-toolkit/eslint-config-prettier": "3.0.0",
     "@electron-toolkit/eslint-config-ts": "^3.1.0",
     "@electron-toolkit/tsconfig": "^2.0.0",
-    "@electron/rebuild": "^4.0.4",
     "@types/node": "^22.19.1",
     "@vitejs/plugin-vue": "^6.0.2",
     "electron": "^39.2.6",
