@@ -413,6 +413,7 @@
     overflow: hidden;
     flex: 1;
     min-height: 0;
+    user-select: text;
   }
 
   // Some hosts (log/merge) provide their own footer-less layouts; the

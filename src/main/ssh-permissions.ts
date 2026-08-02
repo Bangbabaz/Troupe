@@ -1,6 +1,6 @@
-import { randomUUID } from 'crypto'
 import { resolve } from 'path'
 import { flushSettings, readSettings, updateSettings } from './settings'
+import { assessSshCommandRisk } from './ssh-command-risk'
 import type {
   SshCommandApprovalDecision,
   SshCommandApprovalRequest,
@@ -46,45 +46,50 @@ function findSavedCommand(request: SshCommandApprovalRequest): SshCommandPermiss
   )
 }
 
-function rememberCommand(request: SshCommandApprovalRequest): void {
-  if (findSavedCommand(request)) return
-  const rule: SshCommandPermission = {
-    id: randomUUID(),
-    directory: request.sourceDirectory,
-    sshProfileId: request.sshProfileId,
-    sshTarget: request.sshTarget,
-    sshLabel: request.sshLabel,
-    command: request.command,
-    createdAt: Date.now()
+function rememberDirectory(directory: string): void {
+  const permissions = { ...(readSettings().sshDirectoryPermissions || {}) }
+  for (const configured of Object.keys(permissions)) {
+    if (directoryKey(configured) === directoryKey(directory)) delete permissions[configured]
   }
-  updateSettings({
-    sshCommandPermissions: [...(readSettings().sshCommandPermissions || []), rule]
-  })
+  permissions[directory] = 'always_allow'
+  updateSettings({ sshDirectoryPermissions: permissions })
   flushSettings()
   permissionsChanged?.()
 }
 
-export async function authorizeSshCommand(
+async function authorizeQueuedSshCommand(
   request: SshCommandApprovalRequest
 ): Promise<'directory' | 'command' | 'once'> {
   const directoryPolicy = getSshDirectoryPolicy(request.sourceDirectory)
   if (directoryPolicy === 'deny') {
     throw new Error(`当前目录已禁止 Agent 操作 SSH：${request.sourceDirectory}`)
   }
-  if (directoryPolicy === 'always_allow') return 'directory'
-  if (findSavedCommand(request)) return 'command'
+  const risk = assessSshCommandRisk(request.command)
+  if (!risk.dangerous && directoryPolicy === 'always_allow') return 'directory'
+  // Keep pre-0.7 exact-command grants working, but never let them bypass a risk prompt.
+  if (!risk.dangerous && findSavedCommand(request)) return 'command'
   if (!approvalHandler) throw new Error('SSH 命令审批界面尚未就绪')
 
-  const pending = approvalQueue.then(() => approvalHandler!(request))
+  const decision = await approvalHandler({
+    ...request,
+    dangerous: risk.dangerous,
+    riskReason: risk.reason
+  })
+  if (decision === 'deny') throw new Error('用户拒绝了 SSH 命令')
+  if (decision === 'always_allow') {
+    rememberDirectory(request.sourceDirectory)
+    return risk.dangerous ? 'once' : 'directory'
+  }
+  return 'once'
+}
+
+export async function authorizeSshCommand(
+  request: SshCommandApprovalRequest
+): Promise<'directory' | 'command' | 'once'> {
+  const pending = approvalQueue.then(() => authorizeQueuedSshCommand(request))
   approvalQueue = pending.then(
     () => undefined,
     () => undefined
   )
-  const decision = await pending
-  if (decision === 'deny') throw new Error('用户拒绝了 SSH 命令')
-  if (decision === 'always_allow') {
-    rememberCommand(request)
-    return 'command'
-  }
-  return 'once'
+  return pending
 }

@@ -111,6 +111,7 @@ const worker = new ShikiWorker()
 let nextReqId = 0
 const pending = new Map<number, (lines: string[] | null) => void>()
 let workerAlive = true
+let stopActiveDrag: (() => void) | null = null
 
 worker.addEventListener('message', (e: MessageEvent<{ id: number; lines: string[] | null }>) => {
   const { id, lines } = e.data
@@ -131,6 +132,7 @@ function workerTokenize(content: string, lang: string): Promise<string[] | null>
 }
 
 onBeforeUnmount(() => {
+  stopActiveDrag?.()
   workerAlive = false
   // 在 terminate 前把残留 resolver 全部 resolve(null),避免 watch 里的
   // `await tokenizeFile` 永久挂起 —— 组件已经在销毁,被 await 的代码不会再
@@ -337,6 +339,28 @@ const MIN_SIDEBAR = 140
 const MAX_SIDEBAR = 500
 const sidebarWidth = ref(250)
 
+function startColumnDrag(cursor: string, move: (event: MouseEvent) => void): void {
+  stopActiveDrag?.()
+  const previousCursor = document.body.style.cursor
+  const previousUserSelect = document.body.style.userSelect
+
+  const stop = (): void => {
+    document.body.style.cursor = previousCursor
+    document.body.style.userSelect = previousUserSelect
+    window.removeEventListener('mousemove', move)
+    window.removeEventListener('mouseup', stop)
+    window.removeEventListener('blur', stop)
+    if (stopActiveDrag === stop) stopActiveDrag = null
+  }
+
+  stopActiveDrag = stop
+  document.body.style.cursor = cursor
+  document.body.style.userSelect = 'none'
+  window.addEventListener('mousemove', move)
+  window.addEventListener('mouseup', stop)
+  window.addEventListener('blur', stop)
+}
+
 function startSidebarDrag(e: MouseEvent): void {
   e.preventDefault()
   const startX = e.clientX
@@ -346,16 +370,7 @@ function startSidebarDrag(e: MouseEvent): void {
     const dx = ev.clientX - startX
     sidebarWidth.value = Math.max(MIN_SIDEBAR, Math.min(MAX_SIDEBAR, startWidth + dx))
   }
-  function up(): void {
-    document.body.style.cursor = ''
-    document.body.style.userSelect = ''
-    window.removeEventListener('mousemove', move)
-    window.removeEventListener('mouseup', up)
-  }
-  document.body.style.cursor = 'col-resize'
-  document.body.style.userSelect = 'none'
-  window.addEventListener('mousemove', move)
-  window.addEventListener('mouseup', up)
+  startColumnDrag('col-resize', move)
 }
 
 const gridStyle = computed(() => ({
@@ -379,16 +394,7 @@ function startMidDrag(e: MouseEvent): void {
     const xInUsable = ev.clientX - rect.left - numColPx
     midRatio.value = Math.max(0.1, Math.min(0.9, xInUsable / usable))
   }
-  function up(): void {
-    document.body.style.cursor = ''
-    document.body.style.userSelect = ''
-    window.removeEventListener('mousemove', move)
-    window.removeEventListener('mouseup', up)
-  }
-  document.body.style.cursor = 'col-resize'
-  document.body.style.userSelect = 'none'
-  window.addEventListener('mousemove', move)
-  window.addEventListener('mouseup', up)
+  startColumnDrag('col-resize', move)
 }
 </script>
 
@@ -463,6 +469,7 @@ function startMidDrag(e: MouseEvent): void {
   height: 100%;
   min-height: 0;
   @include mono-font;
+  user-select: text;
 }
 
 /* Left: changed-files list */

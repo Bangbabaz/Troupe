@@ -8,10 +8,10 @@ import type { CommitInfo } from '@shared/types'
 //   1. 找到当前 commit.hash 在 lanes 中所占的位置(ownLane);第一次出现就分配空位
 //   2. 上半段画线:每条 prev lane 都是从 (i, 顶) → (i, 中心) 的竖线 —— lane 槽
 //      位绝不重排,所以"穿过"的 lane 自然就是竖线
-//   3. 把 lanes[ownLane] 替换为 commit.parents[0] —— 主线继承同 lane
-//   4. 其它 parents 找空 lane 或复用已有等待者(merge 收回)
-//   5. 下半段画线:主 parent 是竖线、其它 parent 是从 ownLane → parentLane 的
-//      斜线 —— 这就是经典 merge 图形
+//   3. 消费 ownLane；当前列表可见的 parents 复用已有等待者或进入空 lane，主
+//      parent 通常优先继承 ownLane，不可见 parent 不占 lane
+//   4. 下半段画线:ownLane 连接到各 parentLane，既有 lane 同时竖直穿过本行
+//      —— 分叉与收敛都能保持连续
 //
 // 颜色:lane 索引循环 → EL 语义色 token + 一组固定补色。每条 lane 一旦分配颜色
 // 就保持到 lane 终结,主线 + 分支线视觉一致。
@@ -61,8 +61,11 @@ function colorForLane(idx: number): string {
 export function computeGraph(commits: CommitInfo[]): GraphRow[] {
   const rows: GraphRow[] = []
   const lanes: Array<{ hash: string; color: string } | null> = []
+  const remainingHashes = new Set(commits.map((commit) => commit.hash))
 
   for (const commit of commits) {
+    remainingHashes.delete(commit.hash)
+
     // ---- 找到 / 分配 ownLane ----
     let ownLane = lanes.findIndex((l) => l?.hash === commit.hash)
     let ownColor: string
@@ -79,17 +82,29 @@ export function computeGraph(commits: CommitInfo[]): GraphRow[] {
     const prevLanes = lanes.slice()
 
     // ---- 更新 lanes ----
-    lanes[ownLane] = commit.parents[0] ? { hash: commit.parents[0], color: ownColor } : null
-
-    // 其它 parents 进新 lane(或者复用已有 lane —— merge 收回到现存)
-    for (let pi = 1; pi < commit.parents.length; pi++) {
+    // 当前 commit 已经消费掉 ownLane。父提交若已经由另一条 lane 等待，必须
+    // 汇入那条 lane；继续把同一个 parent 留在 ownLane 会制造永不收敛的重复线。
+    lanes[ownLane] = null
+    const parentLanes = new Map<string, number>()
+    const existingParentLanes = new Set<number>()
+    for (let pi = 0; pi < commit.parents.length; pi++) {
       const p = commit.parents[pi]
+      // grep/author 过滤以及分页末尾都可能让直接 parent 不在当前列表中。
+      // 对不可见 parent 继续分配 lane 会让每一行都新增一列并越界绘制。
+      if (!remainingHashes.has(p)) continue
+
       const existing = lanes.findIndex((l) => l?.hash === p)
-      if (existing >= 0) continue
-      const empty2 = lanes.findIndex((l) => l === null)
-      const idx = empty2 >= 0 ? empty2 : lanes.length
-      if (empty2 < 0) lanes.push(null)
-      lanes[idx] = { hash: p, color: colorForLane(idx) }
+      if (existing >= 0) {
+        parentLanes.set(p, existing)
+        existingParentLanes.add(existing)
+        continue
+      }
+
+      const empty = lanes.findIndex((l) => l === null)
+      const idx = empty >= 0 ? empty : lanes.length
+      if (empty < 0) lanes.push(null)
+      lanes[idx] = { hash: p, color: pi === 0 ? ownColor : colorForLane(idx) }
+      parentLanes.set(p, idx)
     }
 
     // 截短尾部 null —— 防止 lane 数无限增长(merge 之后 lane 减少时)
@@ -104,29 +119,27 @@ export function computeGraph(commits: CommitInfo[]): GraphRow[] {
     }
 
     // ---- 下半段 ----
-    // 1) 主 parent (parents[0]):圆点同 lane 直接竖线下去
-    // 2) 其它 parent:圆点到该 parent 所在 lane 的斜线
+    // 1) 每个可见 parent:圆点到该 parent 所在 lane 的连线
+    // 2) 主 parent 通常继承 ownLane；若它已在其它 lane，则画收敛斜线
     // 3) 其它穿过的 lane:本身竖线
     const bottomSegments: GraphSegment[] = []
-    if (commit.parents[0]) {
-      bottomSegments.push({ fromLane: ownLane, toLane: ownLane, color: ownColor })
-    }
-    for (let pi = 1; pi < commit.parents.length; pi++) {
-      const p = commit.parents[pi]
-      const parentLane = lanes.findIndex((l) => l?.hash === p)
-      if (parentLane < 0) continue // 不应该发生,防御性
+    const connectedLanes = new Set<number>()
+    for (const p of commit.parents) {
+      const parentLane = parentLanes.get(p)
+      if (parentLane == null) continue
       bottomSegments.push({
         fromLane: ownLane,
         toLane: parentLane,
         color: lanes[parentLane]!.color
       })
+      connectedLanes.add(parentLane)
     }
     for (let i = 0; i < lanes.length; i++) {
       const l = lanes[i]
       if (!l) continue
-      // 已经被上面两条路径加进去的不重复加
-      if (i === ownLane && commit.parents[0]) continue
-      if (commit.parents.slice(1).some((p) => p === l.hash)) continue
+      // 新分配的 parent lane 已由 node -> parent 的连线覆盖；原本就存在
+      // 的 parent lane 还代表其它 descendant，必须继续竖直穿过本行。
+      if (connectedLanes.has(i) && !existingParentLanes.has(i)) continue
       bottomSegments.push({ fromLane: i, toLane: i, color: l.color })
     }
 

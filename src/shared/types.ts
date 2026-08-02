@@ -265,7 +265,7 @@ export interface Settings {
   sshProfiles?: SshProfile[]
   /** 已打开本地目录通过 Terminal MCP 操作 SSH 时的默认权限。未配置目录默认每次询问。 */
   sshDirectoryPermissions?: Record<string, SshDirectoryPolicy>
-  /** 用户在审批弹窗中选择“始终允许”后保存的精确命令规则。 */
+  /** 旧版“始终允许”保存的精确命令规则，仅用于兼容已有配置。 */
   sshCommandPermissions?: SshCommandPermission[]
 }
 
@@ -329,6 +329,9 @@ export interface SshCommandApprovalRequest {
   sshLabel: string
   command: string
   reason?: string
+  /** 主进程风险判定结果，用于审批界面；调用方无需提供。 */
+  dangerous?: boolean
+  riskReason?: string
 }
 
 export type SshCommandApprovalDecision = 'allow_once' | 'always_allow' | 'deny'

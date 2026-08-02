@@ -251,10 +251,9 @@ function deliverMessage(
   if (!wc || wc.isDestroyed()) throw new Error(`目标 Agent 已离线：${target.name}`)
   wc.send('terminal-mcp-input', {
     paneId: target.paneId,
-    action: 'paste',
+    action: 'paste-and-submit',
     text: createEnvelope(message)
   })
-  wc.send('terminal-mcp-input', { paneId: target.paneId, action: 'submit' })
 }
 
 function createConversation(from: string, to: string): AgentConversation {

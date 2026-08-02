@@ -56,7 +56,7 @@ export const TERMINAL_TOOLS: McpToolDef[] = [
   {
     name: 'terminal_execute_command',
     description:
-      '向指定 SSH 终端发送一条完整命令。服务端会依据来源目录权限强制审批；未明确授权时，命令在用户选择“允许”或“始终允许”前绝不会写入 PTY。禁止换行和 NUL。',
+      '向指定 SSH 终端发送一条完整命令。服务端会依据来源目录权限和命令风险强制审批；“仅本次允许”只执行当前命令，“始终允许低风险命令”会记住来源目录，但危险命令仍逐次确认。禁止换行和 NUL。',
     inputSchema: {
       type: 'object',
       properties: {

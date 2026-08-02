@@ -5,6 +5,7 @@ import { FitAddon } from '@xterm/addon-fit'
 import { SearchAddon } from '@xterm/addon-search'
 import { enableWebglRenderer, waitForTerminalFonts } from '../utils/xtermRenderer'
 import { TERMINAL_VT_EXTENSIONS, TerminalInputHandler } from '../utils/terminalKeyboard'
+import { DEFAULT_SHORTCUTS, shortcutMatches } from '../shortcuts'
 import { ElMessageBox } from 'element-plus'
 import {
   Play,
@@ -13,6 +14,7 @@ import {
   Pencil,
   Trash2,
   Search,
+  Copy,
   X,
   FolderOpen,
   Terminal as TerminalIcon,
@@ -24,6 +26,7 @@ import SearchOverlay from './SearchOverlay.vue'
 import { useTheme } from '../composables/useTheme'
 import { useTasks } from '../composables/useTasks'
 import type { TaskDataPayload, TaskMeta } from '@shared/types'
+import type { ShortcutAction } from '../shortcuts'
 import '@xterm/xterm/css/xterm.css'
 
 const { xtermTheme } = useTheme()
@@ -34,6 +37,7 @@ const terminalInput = new TerminalInputHandler(platform)
 const props = defineProps<{
   modelValue: boolean
   width: number
+  shortcuts: Partial<Record<ShortcutAction, string>>
 }>()
 
 const emit = defineEmits<{
@@ -144,6 +148,7 @@ let loadingSnapshot: { id: string; generation: number; pending: TaskDataPayload[
 // drives (shallow — it's a class instance, no deep reactivity wanted).
 const showLogSearch = ref(false)
 const searchAddon = shallowRef<SearchAddon | null>(null)
+const hasLogSelection = ref(false)
 
 // Push the viewer's grid size to the selected *running* task's PTY so
 // full-screen TUIs (Next.js overlay, vite menu, prompts) render aligned.
@@ -165,6 +170,19 @@ function writeSelectedTaskInput(data: string): void {
   const id = selectedId.value
   const task = tasks.value.find((x) => x.id === id)
   if (id && task?.status === 'running') window.api.taskInput(id, data)
+}
+
+async function copyLogSelection(): Promise<void> {
+  const text = term?.getSelection()
+  if (!text) return
+  try {
+    await navigator.clipboard.writeText(text)
+  } catch {
+    return
+  }
+  term?.clearSelection()
+  hasLogSelection.value = false
+  term?.focus()
 }
 
 function ensureTerm(): void {
@@ -203,6 +221,16 @@ function ensureTerm(): void {
   // running. The one terminal is reused across tasks, so resolve the target
   // at call time; idle/exited tasks are no-ops (backend guards too).
   term.attachCustomKeyEventHandler((e) => {
+    const copyShortcut = props.shortcuts.copy ?? DEFAULT_SHORTCUTS.copy
+    if (e.type === 'keydown' && shortcutMatches(copyShortcut, e, platform)) {
+      if (term?.hasSelection()) {
+        e.preventDefault()
+        void copyLogSelection()
+        return false
+      }
+      return true
+    }
+
     const inputAction = terminalInput.handleKeyEvent(e)
     if (inputAction?.kind === 'write') {
       e.preventDefault()
@@ -210,6 +238,9 @@ function ensureTerm(): void {
       return false
     }
     return true
+  })
+  term.onSelectionChange(() => {
+    hasLogSelection.value = term?.hasSelection() ?? false
   })
   term.onData((d) => writeSelectedTaskInput(d))
   logResizeObserver = new ResizeObserver(() => {
@@ -228,6 +259,7 @@ async function bindLog(id: string | null): Promise<void> {
   if (!term) return
   const generation = ++bindGeneration
   term.reset()
+  hasLogSelection.value = false
   renderedSequence = 0
   loadingSnapshot = id ? { id, generation, pending: [] } : null
   if (!id) return
@@ -303,7 +335,10 @@ onMounted(() => {
     if (meta.id === selectedId.value && meta.status === 'running') syncTaskSize()
   })
   unsubCleared = window.api.onTaskCleared(({ id }) => {
-    if (id === selectedId.value && term) term.reset()
+    if (id === selectedId.value && term) {
+      term.reset()
+      hasLogSelection.value = false
+    }
   })
   unsubRemoved = window.api.onTaskRemoved(({ id }) => {
     // selectedId 清理由 composable 的 watch(allTasks) 负责。
@@ -388,6 +423,7 @@ async function removeTask(t: TaskMeta): Promise<void> {
 
 function clearLog(): void {
   term?.reset()
+  hasLogSelection.value = false
 }
 
 // --- Log search -----------------------------------------------------------
@@ -524,6 +560,15 @@ function closeLogSearch(): void {
               >
             </span>
             <div class="log-head-ops">
+              <button
+                class="op-btn"
+                title="复制选中内容"
+                :disabled="!hasLogSelection"
+                @mousedown.prevent
+                @click="copyLogSelection"
+              >
+                <Copy :size="13" />
+              </button>
               <button class="op-btn" title="搜索" @click="openLogSearch">
                 <Search :size="13" />
               </button>
@@ -907,6 +952,11 @@ function closeLogSearch(): void {
   margin-left: auto;
   display: flex;
   gap: 2px;
+
+  .op-btn:disabled {
+    opacity: 0.35;
+    cursor: not-allowed;
+  }
 }
 
 .log-wrap {

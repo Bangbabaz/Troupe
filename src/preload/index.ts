@@ -173,11 +173,11 @@ const api = {
     return () => ipcRenderer.removeListener('pty-exit', listener)
   },
   onTerminalMcpInput: (
-    cb: (payload: { paneId: string; action: 'paste' | 'submit'; text?: string }) => void
+    cb: (payload: { paneId: string; action: 'paste-and-submit'; text: string }) => void
   ) => {
     const listener = (
       _event: IpcRendererEvent,
-      payload: { paneId: string; action: 'paste' | 'submit'; text?: string }
+      payload: { paneId: string; action: 'paste-and-submit'; text: string }
     ): void => cb(payload)
     ipcRenderer.on('terminal-mcp-input', listener)
     return () => ipcRenderer.removeListener('terminal-mcp-input', listener)

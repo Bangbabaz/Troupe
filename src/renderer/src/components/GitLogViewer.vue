@@ -87,9 +87,12 @@ interface DragState {
   invert: boolean
 }
 let drag: DragState | null = null
+let previousBodyCursor = ''
+let previousBodyUserSelect = ''
 
 function startDrag(e: MouseEvent, target: DragState['target']): void {
   e.preventDefault()
+  onDragEnd()
   const axis: 'x' | 'y' = target === 'body' ? 'y' : 'x'
   let containerEl: HTMLElement | undefined
   let startVal = 0
@@ -113,10 +116,13 @@ function startDrag(e: MouseEvent, target: DragState['target']): void {
     containerSize: axis === 'x' ? rect.width : rect.height,
     invert: axis === 'y'
   }
+  previousBodyCursor = document.body.style.cursor
+  previousBodyUserSelect = document.body.style.userSelect
   document.body.style.cursor = axis === 'x' ? 'col-resize' : 'row-resize'
   document.body.style.userSelect = 'none'
   window.addEventListener('mousemove', onDragMove)
   window.addEventListener('mouseup', onDragEnd)
+  window.addEventListener('blur', onDragEnd)
 }
 
 function clampSplitter(target: DragState['target'], val: number, container: number): number {
@@ -140,11 +146,13 @@ function onDragMove(e: MouseEvent): void {
 }
 
 function onDragEnd(): void {
+  if (!drag) return
   drag = null
-  document.body.style.cursor = ''
-  document.body.style.userSelect = ''
+  document.body.style.cursor = previousBodyCursor
+  document.body.style.userSelect = previousBodyUserSelect
   window.removeEventListener('mousemove', onDragMove)
   window.removeEventListener('mouseup', onDragEnd)
+  window.removeEventListener('blur', onDragEnd)
 }
 
 // Keep splitter sizes valid when the dialog itself is resized (or the layout
@@ -182,8 +190,7 @@ onUnmounted(() => {
   bodyRo?.disconnect()
   rightRo?.disconnect()
   filesDiffRo?.disconnect()
-  window.removeEventListener('mousemove', onDragMove)
-  window.removeEventListener('mouseup', onDragEnd)
+  onDragEnd()
 })
 
 // --- data fetching -------------------------------------------------------
@@ -292,7 +299,19 @@ async function loadBranches(): Promise<void> {
   }
 }
 
-function selectCommit(c: CommitInfo): void {
+function selectCommit(c: CommitInfo, event: MouseEvent): void {
+  const selection = window.getSelection()
+  const row = event.currentTarget as HTMLElement | null
+  if (
+    event.detail > 0 &&
+    selection &&
+    !selection.isCollapsed &&
+    row &&
+    ((selection.anchorNode && row.contains(selection.anchorNode)) ||
+      (selection.focusNode && row.contains(selection.focusNode)))
+  ) {
+    return
+  }
   if (c.hash === selectedHash.value) return
   selectedHash.value = c.hash
   loadDetail(c.hash)
@@ -303,15 +322,13 @@ function selectCommit(c: CommitInfo): void {
 const graphRows = computed(() => computeGraph(commits.value))
 
 // 所有行共用相同 graph 列宽 —— 否则 commit subject 列的左边缘会摇摆。
-// width = max(laneCount across all rows) * laneStep + 2 * leftPad,设置一个
-// 上限避免极端 lane 数(merge 频繁的仓库)把内容挤没。
-const MAX_LANE_RENDER = 6
+// width = max(laneCount across all rows) * laneStep + 2 * leftPad。宽度必须
+// 与实际 lane 一致，否则超出固定上限的 SVG 会覆盖右侧提交信息。
 const graphWidth = computed(() => {
   let maxLanes = 1
   for (const r of graphRows.value) {
     if (r.laneCount > maxLanes) maxLanes = r.laneCount
   }
-  maxLanes = Math.min(maxLanes, MAX_LANE_RENDER)
   return GRAPH.leftPad * 2 + (maxLanes - 1) * GRAPH.laneStep
 })
 const graphHeight = GRAPH.rowHeight
@@ -565,7 +582,7 @@ const fileStatusLabel = (s: FilePatch['status']): string =>
             :key="c.hash"
             class="gl-row"
             :class="{ active: c.hash === selectedHash }"
-            @click="selectCommit(c)"
+            @click="selectCommit(c, $event)"
           >
             <!-- graph 单元:lane 圆点 + 上下连线。同行所有 SVG 宽度都用
                  graphWidth(max over rows),保证 commit 内容列对齐。 -->
@@ -804,6 +821,7 @@ const fileStatusLabel = (s: FilePatch['status']): string =>
   padding: 14px 16px;
   @include ui-font;
   overflow: hidden;
+  user-select: text;
 }
 
 .gl-header {
@@ -884,6 +902,7 @@ const fileStatusLabel = (s: FilePatch['status']): string =>
   min-height: 36px;
   padding: 0 8px 0 0;
   border: 0;
+  user-select: text;
 
   &.active {
     border: 0;
@@ -898,6 +917,8 @@ const fileStatusLabel = (s: FilePatch['status']): string =>
   flex-shrink: 0;
   align-self: stretch;
   position: relative;
+  user-select: none;
+  pointer-events: none;
 }
 
 .gl-graph {

@@ -5,6 +5,14 @@ export const TERMINAL_VT_EXTENSIONS = {
   win32InputMode: true
 } as const
 
+const WIN32_ENTER_KEY_DOWN = '\x1b[13;28;13;1;0;1_'
+const WIN32_ENTER_KEY_UP = '\x1b[13;28;13;0;0;1_'
+
+export function terminalSubmitSequence(win32InputMode: boolean): string {
+  // DECSET 9001 expects xterm's Win32 INPUT_RECORD encoding, including key release.
+  return win32InputMode ? `${WIN32_ENTER_KEY_DOWN}${WIN32_ENTER_KEY_UP}` : '\r'
+}
+
 /**
  * Small compatibility layer for key sequences xterm does not translate the
  * same way as native terminals. Printable text and IME composition stay fully

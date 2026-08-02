@@ -259,17 +259,24 @@ app.whenReady().then(() => {
     async (request: SshCommandApprovalRequest): Promise<SshCommandApprovalDecision> => {
       const options = {
         type: 'warning' as const,
-        title: 'SSH 命令审批',
-        message: 'Agent 请求执行 SSH 命令',
+        title: request.dangerous ? '危险 SSH 命令审批' : 'SSH 命令审批',
+        message: request.dangerous ? 'Agent 请求执行危险 SSH 命令' : 'Agent 请求执行 SSH 命令',
         detail: [
           `来源目录：${visibleApprovalText(request.sourceDirectory)}`,
           `SSH 目标：${visibleApprovalText(request.sshLabel)}`,
           request.reason ? `执行原因：${visibleApprovalText(request.reason)}` : '执行原因：未提供',
+          request.dangerous
+            ? `风险提示：${visibleApprovalText(request.riskReason || '检测到高风险操作')}`
+            : '风险提示：未检测到高风险操作',
           '',
           '完整命令：',
-          visibleApprovalText(request.command)
+          visibleApprovalText(request.command),
+          '',
+          request.dangerous
+            ? '危险命令即使已开启目录授权，仍会逐次确认。'
+            : '“始终允许低风险命令”仅对当前来源目录生效；危险命令仍会逐次确认。'
         ].join('\n'),
-        buttons: ['允许', '始终允许', '拒绝'],
+        buttons: ['仅本次允许', '始终允许低风险命令', '拒绝'],
         defaultId: 2,
         cancelId: 2,
         noLink: true

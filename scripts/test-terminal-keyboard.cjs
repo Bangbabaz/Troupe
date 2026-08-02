@@ -14,7 +14,7 @@ function loadTypeScript(relativePath) {
   return loaded.exports
 }
 
-const { TERMINAL_VT_EXTENSIONS, TerminalInputHandler } = loadTypeScript(
+const { TERMINAL_VT_EXTENSIONS, TerminalInputHandler, terminalSubmitSequence } = loadTypeScript(
   'src/renderer/src/utils/terminalKeyboard.ts'
 )
 const { createTerminalEnvironment } = loadTypeScript('src/main/terminal-env.ts')
@@ -40,6 +40,9 @@ assert.deepEqual(TERMINAL_VT_EXTENSIONS, {
   kittyKeyboard: true,
   win32InputMode: true
 })
+
+assert.equal(terminalSubmitSequence(false), '\r')
+assert.equal(terminalSubmitSequence(true), '\x1b[13;28;13;1;0;1_\x1b[13;28;13;0;0;1_')
 
 // Every supported desktop platform declares its default terminal identity,
 // while an identity inherited from the launch environment always wins.

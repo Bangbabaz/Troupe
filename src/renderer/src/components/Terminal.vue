@@ -7,7 +7,11 @@ import { SearchAddon } from '@xterm/addon-search'
 import { WebLinksAddon } from '@xterm/addon-web-links'
 import { Unicode11Addon } from '@xterm/addon-unicode11'
 import { enableWebglRenderer, waitForTerminalFonts } from '../utils/xtermRenderer'
-import { TERMINAL_VT_EXTENSIONS, TerminalInputHandler } from '../utils/terminalKeyboard'
+import {
+  TERMINAL_VT_EXTENSIONS,
+  TerminalInputHandler,
+  terminalSubmitSequence
+} from '../utils/terminalKeyboard'
 import {
   Copy,
   ClipboardPaste,
@@ -706,12 +710,9 @@ onMounted(async () => {
     terminal.writeln(`\r\n\x1b[33m[process exited with code ${code}]\x1b[0m`)
   })
   unsubscribeTerminalMcpInput = window.api.onTerminalMcpInput((payload) => {
-    if (payload.paneId !== props.paneId) return
-    if (payload.action === 'paste') {
-      terminal.paste(payload.text ?? '')
-    } else if (payload.action === 'submit') {
-      window.api.ptyWrite(props.paneId, '\r')
-    }
+    if (payload.paneId !== props.paneId || payload.action !== 'paste-and-submit') return
+    terminal.paste(payload.text)
+    terminal.input(terminalSubmitSequence(terminal.modes.win32InputMode))
   })
 
   // ptyStart 失败的真实原因(ENOENT 找不到 shell、EACCES 权限拒绝、cwd 不存在

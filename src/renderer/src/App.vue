@@ -1170,13 +1170,13 @@ onUnmounted(() => {
                   :model-value="sshDirectoryPolicy(directory)"
                   size="small"
                   popper-class="settings-select-popper"
-                  style="width: 130px"
+                  style="width: 180px"
                   @update:model-value="
                     (value: SshDirectoryPolicy) => onSshDirectoryPolicyChange(directory, value)
                   "
                 >
                   <el-option label="每次确认" value="ask" />
-                  <el-option label="始终允许" value="always_allow" />
+                  <el-option label="低风险命令免确认" value="always_allow" />
                   <el-option label="拒绝" value="deny" />
                 </el-select>
               </div>
@@ -1297,6 +1297,7 @@ onUnmounted(() => {
   <TasksDrawer
     v-model="showTasks"
     :width="tasksDrawerWidth"
+    :shortcuts="shortcutOverrides"
     @width-change="onTasksDrawerWidthChange"
     @edit-task="(id: string, cwd?: string) => openTaskManager(id, cwd ?? null)"
   />
