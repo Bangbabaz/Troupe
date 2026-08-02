@@ -5,12 +5,89 @@ export const TERMINAL_VT_EXTENSIONS = {
   win32InputMode: true
 } as const
 
-const WIN32_ENTER_KEY_DOWN = '\x1b[13;28;13;1;0;1_'
-const WIN32_ENTER_KEY_UP = '\x1b[13;28;13;0;0;1_'
+type KeyboardEventFactory = (type: 'keydown' | 'keyup', init: KeyboardEventInit) => Event
+type TimerScheduler = (callback: () => void, delayMs: number) => number
+type TimerCanceler = (timerId: number) => void
 
-export function terminalSubmitSequence(win32InputMode: boolean): string {
-  // DECSET 9001 expects xterm's Win32 INPUT_RECORD encoding, including key release.
-  return win32InputMode ? `${WIN32_ENTER_KEY_DOWN}${WIN32_ENTER_KEY_UP}` : '\r'
+export const TERMINAL_PASTE_SETTLE_MS = 250
+
+function createKeyboardEvent(type: 'keydown' | 'keyup', init: KeyboardEventInit): KeyboardEvent {
+  const event = new KeyboardEvent(type, init)
+  // Chromium does not consistently initialize these deprecated fields, but
+  // xterm's legacy encoder still consults keyCode when no enhanced protocol is active.
+  if (event.keyCode !== 13) Reflect.defineProperty(event, 'keyCode', { value: 13 })
+  if (event.which !== 13) Reflect.defineProperty(event, 'which', { value: 13 })
+  return event
+}
+
+export function dispatchTerminalSubmit(
+  target: Pick<EventTarget, 'dispatchEvent'>,
+  eventFactory: KeyboardEventFactory = createKeyboardEvent
+): void {
+  const init: KeyboardEventInit = {
+    key: 'Enter',
+    code: 'Enter',
+    bubbles: true,
+    cancelable: true,
+    composed: true
+  }
+  target.dispatchEvent(eventFactory('keydown', init))
+  target.dispatchEvent(eventFactory('keyup', init))
+}
+
+/**
+ * Keep submit outside the terminal's paste burst and serialize messages so a
+ * second delivery cannot be appended to the first draft before it is sent.
+ */
+export class TerminalPasteSubmitQueue {
+  private readonly pending: string[] = []
+  private timerId: number | null = null
+  private active = false
+  private disposed = false
+
+  constructor(
+    private readonly paste: (text: string) => void,
+    private readonly submit: () => void,
+    private readonly schedule: TimerScheduler = (callback, delayMs) =>
+      window.setTimeout(callback, delayMs),
+    private readonly cancel: TimerCanceler = (timerId) => window.clearTimeout(timerId),
+    private readonly settleMs = TERMINAL_PASTE_SETTLE_MS
+  ) {}
+
+  enqueue(text: string): void {
+    if (this.disposed) return
+    this.pending.push(text)
+    if (!this.active) this.pasteNext()
+  }
+
+  dispose(): void {
+    this.disposed = true
+    this.pending.length = 0
+    if (this.timerId !== null) this.cancel(this.timerId)
+    this.timerId = null
+  }
+
+  private pasteNext(): void {
+    const text = this.pending.shift()
+    if (text === undefined || this.disposed) {
+      this.active = false
+      return
+    }
+
+    this.active = true
+    this.paste(text)
+    this.timerId = this.schedule(() => {
+      this.timerId = null
+      if (this.disposed) return
+      this.submit()
+      this.timerId = this.schedule(() => {
+        this.timerId = null
+        if (this.disposed) return
+        this.active = false
+        this.pasteNext()
+      }, this.settleMs)
+    }, this.settleMs)
+  }
 }
 
 /**

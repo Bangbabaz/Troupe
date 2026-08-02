@@ -14,9 +14,13 @@ function loadTypeScript(relativePath) {
   return loaded.exports
 }
 
-const { TERMINAL_VT_EXTENSIONS, TerminalInputHandler, terminalSubmitSequence } = loadTypeScript(
-  'src/renderer/src/utils/terminalKeyboard.ts'
-)
+const {
+  dispatchTerminalSubmit,
+  TERMINAL_PASTE_SETTLE_MS,
+  TERMINAL_VT_EXTENSIONS,
+  TerminalInputHandler,
+  TerminalPasteSubmitQueue
+} = loadTypeScript('src/renderer/src/utils/terminalKeyboard.ts')
 const { createTerminalEnvironment } = loadTypeScript('src/main/terminal-env.ts')
 const { createShortcutDefs, eventToShortcut, shortcutDisplayParts, shortcutMatches } =
   loadTypeScript('src/renderer/src/shortcuts.ts')
@@ -36,13 +40,88 @@ function key(overrides = {}) {
   }
 }
 
+// Paste and submit are separated by a quiet period. Multiple Agent messages
+// stay serialized instead of being merged into one composer draft.
+{
+  const calls = []
+  const timers = []
+  let nextTimerId = 1
+  const queue = new TerminalPasteSubmitQueue(
+    (text) => calls.push(['paste', text]),
+    () => calls.push(['submit']),
+    (callback, delayMs) => {
+      const id = nextTimerId++
+      timers.push({ id, callback, delayMs })
+      return id
+    },
+    (timerId) => calls.push(['cancel', timerId])
+  )
+
+  const runTimer = () => {
+    const timer = timers.shift()
+    assert.ok(timer)
+    assert.equal(timer.delayMs, TERMINAL_PASTE_SETTLE_MS)
+    timer.callback()
+  }
+
+  queue.enqueue('first')
+  queue.enqueue('second')
+  assert.deepEqual(calls, [['paste', 'first']])
+
+  runTimer()
+  assert.deepEqual(calls, [['paste', 'first'], ['submit']])
+  runTimer()
+  assert.deepEqual(calls, [['paste', 'first'], ['submit'], ['paste', 'second']])
+  runTimer()
+  assert.deepEqual(calls, [['paste', 'first'], ['submit'], ['paste', 'second'], ['submit']])
+  runTimer()
+  assert.equal(timers.length, 0)
+
+  queue.enqueue('discarded')
+  queue.dispose()
+  assert.deepEqual(calls.slice(-2), [
+    ['paste', 'discarded'],
+    ['cancel', 5]
+  ])
+}
+
 assert.deepEqual(TERMINAL_VT_EXTENSIONS, {
   kittyKeyboard: true,
   win32InputMode: true
 })
 
-assert.equal(terminalSubmitSequence(false), '\r')
-assert.equal(terminalSubmitSequence(true), '\x1b[13;28;13;1;0;1_\x1b[13;28;13;0;0;1_')
+// Programmatic submission must travel through xterm's keyboard encoder so the
+// active legacy, Kitty, or Win32 input protocol sees a real Enter key.
+{
+  const events = []
+  dispatchTerminalSubmit(
+    {
+      dispatchEvent(event) {
+        events.push(event)
+        return true
+      }
+    },
+    (type, init) => ({ type, ...init })
+  )
+  assert.deepEqual(events, [
+    {
+      type: 'keydown',
+      key: 'Enter',
+      code: 'Enter',
+      bubbles: true,
+      cancelable: true,
+      composed: true
+    },
+    {
+      type: 'keyup',
+      key: 'Enter',
+      code: 'Enter',
+      bubbles: true,
+      cancelable: true,
+      composed: true
+    }
+  ])
+}
 
 // Every supported desktop platform declares its default terminal identity,
 // while an identity inherited from the launch environment always wins.

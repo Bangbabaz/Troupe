@@ -8,9 +8,10 @@ import { WebLinksAddon } from '@xterm/addon-web-links'
 import { Unicode11Addon } from '@xterm/addon-unicode11'
 import { enableWebglRenderer, waitForTerminalFonts } from '../utils/xtermRenderer'
 import {
+  dispatchTerminalSubmit,
   TERMINAL_VT_EXTENSIONS,
   TerminalInputHandler,
-  terminalSubmitSequence
+  TerminalPasteSubmitQueue
 } from '../utils/terminalKeyboard'
 import {
   Copy,
@@ -154,9 +155,40 @@ const terminal = new Terminal({
   windowsPty: platform === 'win32' ? { backend: 'conpty', buildNumber: windowsBuild } : undefined,
   theme: xtermTheme.value,
   ...props.options,
+  // OSC 8 hyperlinks have a separate provider inside xterm. Without this
+  // handler they use window.confirm(), whose native modal can leave xterm's
+  // hidden textarea blurred after it closes. Route them through the same
+  // validated Electron IPC path as plain-text URLs instead.
+  linkHandler: {
+    activate: (_event, uri) => void openTerminalLink(uri)
+  },
   allowProposedApi: true,
   vtExtensions: TERMINAL_VT_EXTENSIONS
 })
+
+const terminalMcpInputQueue = new TerminalPasteSubmitQueue(
+  (text) => terminal.paste(text),
+  () => {
+    const input = terminal.textarea
+    if (input) dispatchTerminalSubmit(input)
+  }
+)
+
+function restoreTerminalFocusAfterLink(): void {
+  requestAnimationFrame(() => {
+    if (terminalRef.value?.isConnected) terminal.focus()
+  })
+}
+
+async function openTerminalLink(uri: string): Promise<void> {
+  try {
+    await window.api.openExternal(uri)
+  } finally {
+    // Keep the input target ready when Troupe regains OS focus after the
+    // external browser opens, and also recover from failed/blocked links.
+    restoreTerminalFocusAfterLink()
+  }
+}
 
 const fitAddon = new FitAddon()
 // Highlighting is synchronous in @xterm/addon-search. Keeping this well below
@@ -164,7 +196,7 @@ const fitAddon = new FitAddon()
 // creating enough canvas decorations to stall the renderer.
 const searchAddon = new SearchAddon({ highlightLimit: 200 })
 const webLinksAddon = new WebLinksAddon((_event, uri) => {
-  void window.api.openExternal(uri)
+  void openTerminalLink(uri)
 })
 const unicode11Addon = new Unicode11Addon()
 terminal.loadAddon(fitAddon)
@@ -179,7 +211,7 @@ watch(currentCwd, (newCwd) => {
   if (newCwd) emit('cwdChange', props.paneId, newCwd)
 })
 
-// OSC 7 — `\e]7;file://host/path\a`. Emitted by bash/zsh/pwsh/cmd thanks to
+// OSC 7 — `\e]7;file://host/path\a`. Emitted by bash/zsh/fish/pwsh/cmd thanks to
 // the shell-integration hook in main; we parse and update currentCwd.
 terminal.parser.registerOscHandler(7, (data) => {
   const m = data.match(/^file:\/\/[^/]*(.+)$/)
@@ -711,8 +743,7 @@ onMounted(async () => {
   })
   unsubscribeTerminalMcpInput = window.api.onTerminalMcpInput((payload) => {
     if (payload.paneId !== props.paneId || payload.action !== 'paste-and-submit') return
-    terminal.paste(payload.text)
-    terminal.input(terminalSubmitSequence(terminal.modes.win32InputMode))
+    terminalMcpInputQueue.enqueue(payload.text)
   })
 
   // ptyStart 失败的真实原因(ENOENT 找不到 shell、EACCES 权限拒绝、cwd 不存在
@@ -790,6 +821,7 @@ onUnmounted(() => {
   unsubscribeExit?.()
   unsubscribeBrowserActivate?.()
   unsubscribeTerminalMcpInput?.()
+  terminalMcpInputQueue.dispose()
   window.api.ptyKill(props.paneId)
   terminal.dispose()
 })
