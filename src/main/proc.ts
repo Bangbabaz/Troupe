@@ -1,5 +1,6 @@
 import { execFile } from 'child_process'
 import { promisify } from 'util'
+import { getShellRuntime } from './shell-runtime'
 
 const execFileP = promisify(execFile)
 const isWindows = process.platform === 'win32'
@@ -90,9 +91,11 @@ export async function killProcessTree(pid: number | undefined | null): Promise<v
  * the system process and that ancestry is lost forever.
  */
 async function snapshotDescendantsWindows(rootPid: number): Promise<number[]> {
+  const shell = getShellRuntime()
+  if (shell.kind !== 'powershell') return []
   try {
     const { stdout } = await execFileP(
-      'powershell',
+      shell.executable,
       [
         '-NoProfile',
         '-NonInteractive',

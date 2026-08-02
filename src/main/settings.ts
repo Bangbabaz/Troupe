@@ -16,6 +16,7 @@ const DEFAULTS: Settings = {
   tasksDrawerWidth: 860,
   browserDrawerWidth: 480,
   theme: 'system',
+  shell: 'auto',
   autoUpdate: true,
   quickCommands: [],
   sshProfiles: [],

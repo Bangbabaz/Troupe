@@ -40,6 +40,14 @@ Troupe 基于 Electron、Vue 3 和 xterm.js 构建。它将终端分屏、Git �
 - 支持终端搜索、链接识别、Unicode 11 和 WebGL 渲染
 - 支持可配置快捷键、字体大小和 scrollback 缓冲区
 
+Troupe 默认自动解析 Shell，也可以在“设置 → 通用 → 终端”中选择当前平台已发现的
+Shell。终端、后台任务和 Agent 会话命令共用该选择；更改会应用于之后创建的会话和任务：
+
+- Windows 依次使用 `pwsh.exe`（PowerShell Core 6 及后续版本）、Windows PowerShell、`cmd.exe`
+- macOS 优先使用有效的 `$SHELL`，再依次回退到 `zsh`、`bash`、`sh`
+- Linux 优先使用有效的 `$SHELL`，再依次回退到 `bash`、`sh`
+- Shell 发现只检查可执行文件，不依赖 PowerShell 或其他待检测 Shell 执行探测脚本
+
 ### Git 与工作树
 
 - 显示当前仓库、分支、改动数量和合并状态

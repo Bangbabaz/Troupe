@@ -18,7 +18,8 @@ import {
   Server,
   ShieldCheck,
   Trash2,
-  FolderGit2
+  FolderGit2,
+  SquareTerminal
 } from 'lucide-vue-next'
 import { ElMessage } from 'element-plus'
 import TerminalView from './components/Terminal.vue'
@@ -40,6 +41,7 @@ import {
 import type {
   AgentSessionInfo,
   QuickCommand,
+  ShellOption,
   SshCommandPermission,
   SshDirectoryPolicy,
   SshProfile
@@ -69,6 +71,8 @@ const appScrollback = ref(DEFAULT_SCROLLBACK)
 
 const showSettings = ref(false)
 const settingsTab = ref<'general' | 'commands' | 'mcp' | 'ssh' | 'shortcuts' | 'about'>('general')
+const selectedShell = ref('auto')
+const shellOptions = ref<ShellOption[]>([])
 const electronVersion = ref('')
 const appVersion = ref('')
 const quickCommands = ref<QuickCommand[]>([])
@@ -252,6 +256,17 @@ const onTasksDrawerWidthChange = (w: number): void => {
 const { preference: themePref, setPreference: setThemePref, init: initTheme } = useTheme()
 const onThemeChange = (v: ThemePref): void => {
   setThemePref(v)
+}
+
+const onShellChange = async (value: string): Promise<void> => {
+  const previous = selectedShell.value
+  selectedShell.value = value
+  try {
+    await window.api.settingsSetNow({ shell: value })
+  } catch (err) {
+    selectedShell.value = previous
+    ElMessage.error(`Shell 设置保存失败: ${err instanceof Error ? err.message : String(err)}`)
+  }
 }
 
 // ----------- Layout(全部委托给 useLayout)-----------
@@ -645,7 +660,17 @@ onMounted(async () => {
   ).process?.versions
   if (versions?.electron) electronVersion.value = versions.electron
 
-  const settings = await window.api.settingsGet()
+  const [settings, availableShells] = await Promise.all([
+    window.api.settingsGet(),
+    window.api.shellList()
+  ])
+  shellOptions.value = availableShells
+  const configuredShell =
+    typeof settings.shell === 'string' ? settings.shell.trim() || 'auto' : 'auto'
+  selectedShell.value =
+    configuredShell === 'auto' || availableShells.some((option) => option.value === configuredShell)
+      ? configuredShell
+      : 'auto'
   if (typeof settings.fontSize === 'number') appFontSize.value = settings.fontSize
   if (typeof settings.scrollback === 'number') appScrollback.value = settings.scrollback
   if (typeof settings.autoOpenTasksOnRun === 'boolean')
@@ -979,6 +1004,36 @@ onUnmounted(() => {
 
           <section class="settings-section">
             <header class="settings-section-header">
+              <SquareTerminal :size="14" class="settings-section-icon" />
+              <h3 class="settings-section-title">终端</h3>
+            </header>
+            <div class="settings-item">
+              <div class="settings-item-row">
+                <label class="settings-item-label">Shell</label>
+                <el-select
+                  :model-value="selectedShell"
+                  size="small"
+                  popper-class="settings-select-popper"
+                  style="width: 260px"
+                  @update:model-value="(value: string) => onShellChange(value)"
+                >
+                  <el-option label="自动" value="auto" />
+                  <el-option
+                    v-for="option in shellOptions"
+                    :key="option.value"
+                    :label="option.label"
+                    :value="option.value"
+                  />
+                </el-select>
+              </div>
+              <p class="settings-item-desc">
+                更改后，新终端与之后启动的任务会使用所选 Shell；现有会话保持不变。
+              </p>
+            </div>
+          </section>
+
+          <section class="settings-section">
+            <header class="settings-section-header">
               <Layout :size="14" class="settings-section-icon" />
               <h3 class="settings-section-title">会话</h3>
             </header>
@@ -1024,7 +1079,6 @@ onUnmounted(() => {
               </p>
             </div>
           </section>
-
         </template>
 
         <QuickCommandsSettings

@@ -93,6 +93,7 @@ import {
 } from './mcp-server'
 import { setSshCommandApprovalHandler, setSshPermissionsChangedHandler } from './ssh-permissions'
 import { listAgentSessions } from './agent-sessions'
+import { configureShellRuntime, listAvailableShells } from './shell-runtime'
 import icon from '../../resources/icon.png?asset'
 import type {
   PtyStartOpts,
@@ -233,6 +234,7 @@ function createWindow(): void {
 }
 
 app.whenReady().then(() => {
+  configureShellRuntime(readSettings().shell)
   electronApp.setAppUserModelId('com.troupe.app')
 
   app.on('browser-window-created', (_, window) => {
@@ -513,12 +515,19 @@ app.whenReady().then(() => {
 
   // Settings IPC
   ipcMain.handle('settings-get', () => readSettings())
+  ipcMain.handle('shell-list', () => listAvailableShells())
   ipcMain.handle('settings-set-now', (_event, patch: Partial<Settings>) => {
     updateSettings(patch)
+    if (Object.prototype.hasOwnProperty.call(patch, 'shell')) {
+      configureShellRuntime(patch.shell)
+    }
     flushSettings()
   })
   ipcMain.on('settings-set', (_event, patch: Partial<Settings>) => {
     updateSettings(patch)
+    if (Object.prototype.hasOwnProperty.call(patch, 'shell')) {
+      configureShellRuntime(patch.shell)
+    }
   })
 
   const sanitizeSshProfile = (profile: SshProfile): SshProfile => ({
@@ -744,7 +753,7 @@ app.whenReady().then(() => {
 
   createWindow()
   // 不在启动期自动 detectIdes。首次无缓存只显示系统入口,完整 IDE 扫描由用户
-  // 点击"重新检测"触发,避免 PowerShell/system_profiler 与 PTY、git 抢资源。
+  // 点击"重新检测"触发,避免系统枚举进程与 PTY、git 抢资源。
 
   app.on('activate', function () {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()
@@ -754,7 +763,7 @@ app.whenReady().then(() => {
 // before-quit fires synchronously and Electron tears the process down right
 // after we return — but killAllTasks is now async (it has to snapshot the
 // descendant tree before each pty.kill()). Defer the actual quit until the
-// cleanup resolves; without this the snapshot PowerShell is killed mid-flight
+// cleanup resolves; without this the process snapshot helper is killed mid-flight
 // and detached survivors (Nx workers, dev servers) are left running.
 let cleanupDone = false
 let cleanupPromise: Promise<void> | null = null
@@ -765,7 +774,7 @@ async function runCleanup(): Promise<void> {
       try {
         // 后台任务 + 每个面板的 PTY 子进程树并行清理。仅依赖
         // webContents.once('destroyed') 兜底是不够的 —— before-quit 期间 main
-        // 已在收尾,async killPty 没人 await,killProcessTree 起的 PowerShell
+        // 已在收尾,async killPty 没人 await,killProcessTree 起的快照进程
         // snapshot 会被 main 退出打断,detached 的孙子(Nx workers / vite /
         // dev server)随之逃逸。这里两边一起 await 直到全部杀完。
         await Promise.all([killAllTasks(), killAllPtyTrees(), disposeAllBrowsers()])

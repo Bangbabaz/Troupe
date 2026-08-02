@@ -2,6 +2,7 @@ import { createReadStream, existsSync, statSync } from 'fs'
 import { readdir } from 'fs/promises'
 import { basename, dirname, join, sep } from 'path'
 import { createInterface } from 'readline'
+import { getShellRuntime, shellQuoteArgument } from './shell-runtime'
 import type { AgentSessionInfo, AgentSessionProvider } from '@shared/types'
 
 const MAX_FILES_PER_PROVIDER = 300
@@ -70,14 +71,9 @@ function compactTitle(text: string, fallback: string): string {
   return t.length > MAX_TITLE_LEN ? `${t.slice(0, MAX_TITLE_LEN - 1)}...` : t
 }
 
-function shellQuote(value: string): string {
-  return `"${value.replace(/"/g, '\\"')}"`
-}
-
 function commandFor(provider: AgentSessionProvider, id: string): string {
-  return provider === 'claude'
-    ? `claude --resume ${shellQuote(id)}`
-    : `codex resume ${shellQuote(id)}`
+  const quotedId = shellQuoteArgument(getShellRuntime(), id)
+  return provider === 'claude' ? `claude --resume ${quotedId}` : `codex resume ${quotedId}`
 }
 
 function decodeClaudeProjectPath(filePath: string): string | null {

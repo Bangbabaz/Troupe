@@ -15,6 +15,7 @@ import { basename, join } from 'path'
  *   bash       — `--rcfile` pointing to a tempfile that sources login profile
  *                (~/.bash_profile / ~/.profile) + ~/.bashrc + adds PROMPT_COMMAND
  *   zsh        — set ZDOTDIR to a tempdir; its .zshrc sources the real one + adds precmd hook
+ *   fish       — `--init-command` installs a PWD-change hook after user config loads
  *   powershell — `-NoLogo -NoExit -Command` to load $PROFILE then wrap user's prompt
  *   pwsh       — same as powershell
  *   cmd.exe    — set PROMPT env var with `$E]7;file://...$E\` prefix
@@ -144,15 +145,27 @@ function powershellCommand(): string {
     //    Get-Command prompt 在没自定义时返回内置 Function;Copy 一份引用即可。
     '$global:__troupeOriginalPrompt = (Get-Command prompt).ScriptBlock',
     // 3) 替换 prompt:先打 OSC 7,再调用原 prompt 拿到其返回字符串。
-    //    $esc = ESC (0x1B);用 [char]27 才跨 PS 5.1/7 一致。
+    //    $esc = ESC (0x1B);[char]27 在 Windows PowerShell/PowerShell Core 中一致。
     'function global:prompt {',
     '  $cwd = $ExecutionContext.SessionState.Path.CurrentLocation.Path',
-    '  $hn  = if ($env:COMPUTERNAME) { $env:COMPUTERNAME } else { "localhost" }',
+    '  $hn  = if ($env:COMPUTERNAME) { $env:COMPUTERNAME } elseif ($env:HOSTNAME) { $env:HOSTNAME } else { "localhost" }',
     '  $esc = [char]27',
-    '  $osc = "$esc]7;file://$hn/$($cwd.Replace([char]92,[char]47))$esc\\"',
+    '  $path = $cwd.Replace([char]92,[char]47)',
+    '  if (-not $path.StartsWith("/")) { $path = "/$path" }',
+    '  $osc = "$esc]7;file://$hn$path$esc\\"',
     '  $body = if ($global:__troupeOriginalPrompt) { & $global:__troupeOriginalPrompt } else { "PS $cwd> " }',
     '  "$osc$body"',
     '}'
+  ].join('; ')
+}
+
+function fishCommand(): string {
+  return [
+    'function __troupe_osc7 --on-variable PWD',
+    '  set -l host (hostname)',
+    `  printf '\\033]7;file://%s%s\\033\\\\' $host $PWD`,
+    'end',
+    '__troupe_osc7'
   ].join('; ')
 }
 
@@ -177,10 +190,14 @@ export function shellIntegration(shellPath: string): ShellSpec {
     return { shell: shellPath, args: ['-l'], env }
   }
 
-  if (name === 'powershell' || name === 'pwsh') {
+  if (name === 'fish') {
+    return { shell: shellPath, args: ['-l', '--init-command', fishCommand()], env: baseEnv }
+  }
+
+  if (name === 'powershell' || name === 'pwsh' || name === 'pwsh-preview') {
     return {
       shell: shellPath,
-      args: ['-NoLogo', '-NoExit', '-Command', powershellCommand()],
+      args: ['-NoLogo', '-NoProfile', '-NoExit', '-Command', powershellCommand()],
       env: baseEnv
     }
   }

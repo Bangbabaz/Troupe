@@ -3,6 +3,7 @@ import { WebContents, app } from 'electron'
 import { statSync } from 'fs'
 import { readSettings, updateSettings } from './settings'
 import { killProcessTree } from './proc'
+import { getShellRuntime, shellCommandArgs } from './shell-runtime'
 import { createTerminalEnvironment } from './terminal-env'
 import type { TaskDef, TaskMeta, TaskStatus } from '@shared/types'
 import type { TaskOutputSnapshot } from '@shared/types'
@@ -48,13 +49,6 @@ const subscribers = new Set<WebContents>()
 
 function genId(): string {
   return `task-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`
-}
-
-function defaultShell(): string {
-  if (isWindows) return process.env.COMSPEC || 'cmd.exe'
-  // mac 默认 zsh,linux 仍 bash —— 见 shell.ts defaultShell 的同步注释。
-  if (process.platform === 'darwin') return process.env.SHELL || '/bin/zsh'
-  return process.env.SHELL || '/bin/bash'
 }
 
 function isValidDir(p: string): boolean {
@@ -187,11 +181,11 @@ function spawnPty(t: Task): void {
   //     用户体感是"运行无效"。
   //   - app.getPath('home') 跨平台都返回用户家目录,与 PTY pane 的默认值统一。
   const cwd = t.cwd && isValidDir(t.cwd) ? t.cwd : app.getPath('home')
-  const shell = defaultShell()
+  const shell = getShellRuntime()
   // Run the command through the shell so users can use pipes, &&, env vars,
   // and `npm run x` resolves from node_modules/.bin. Login + interactive on
   // POSIX so the user's full PATH (nvm/homebrew/…) is sourced.
-  const args = isWindows ? ['/d', '/s', '/c', t.command] : ['-l', '-i', '-c', t.command]
+  const args = shellCommandArgs(shell, t.command)
 
   // Per-task environment: a fresh copy (never the shared live process.env) with
   // PWD pinned to this task's cwd and the stale INIT_CWD dropped. Without this,
@@ -201,7 +195,7 @@ function spawnPty(t: Task): void {
   env.PWD = cwd
   delete env.INIT_CWD
 
-  const pty = spawn(shell, args, {
+  const pty = spawn(shell.executable, args, {
     name: 'xterm-256color',
     cols: t.cols || DEFAULT_COLS,
     rows: t.rows || DEFAULT_ROWS,
@@ -317,8 +311,7 @@ export async function stopTask(id: string): Promise<void> {
   const pid = t.pty.pid
   // Snapshot + reap the descendant tree BEFORE pty.kill() — otherwise the
   // shell's children (dev servers, watchers, Nx executor workers) get
-  // reparented and survive. Awaiting here costs ~300ms (PowerShell start)
-  // but is what actually catches detached survivors.
+  // reparented and survive. Awaiting here is what catches detached survivors.
   if (pid) {
     try {
       await killProcessTree(pid)
@@ -443,8 +436,8 @@ export function updateTask(
 /**
  * Kill every running task — called on app quit so no orphans linger.
  * Awaiting here gives the descendant-tree snapshot time to finish before
- * Electron tears the main process down (otherwise the snapshot's child
- * PowerShell would be reaped mid-query and survivors would be left behind).
+ * Electron tears the main process down (otherwise its helper process can be
+ * reaped mid-query and survivors would be left behind).
  */
 export async function killAllTasks(): Promise<void> {
   await Promise.all(

@@ -225,6 +225,12 @@ export interface WindowBounds {
   height: number
 }
 
+export interface ShellOption {
+  value: string
+  label: string
+  executable: string
+}
+
 export interface Settings {
   windowBounds?: WindowBounds
   windowMaximized?: boolean
@@ -243,6 +249,8 @@ export interface Settings {
   /** 浏览器抽屉宽度(px),默认 480。 */
   browserDrawerWidth?: number
   theme?: ThemePref
+  /** auto 使用平台默认探测，否则为已探测到的 Shell 可执行文件。 */
+  shell?: string
   /** 旧版本全局 IDE 选择，仅用于迁移到 paneSelectedIdeIds。 */
   defaultIde?: string
   /** 每个终端面板的 IDE 打开方式，key 为 paneId。 */

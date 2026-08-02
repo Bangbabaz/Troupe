@@ -7,6 +7,7 @@ import { readlinkSync, statSync, readFileSync, existsSync } from 'fs'
 import { readFile, rm, writeFile } from 'fs/promises'
 import { basename, dirname, join, relative, resolve } from 'path'
 import { shellIntegration } from './shell-integration'
+import { getShellRuntime } from './shell-runtime'
 import { createTerminalEnvironment } from './terminal-env'
 import { AGENT_MCP_PORT, BROWSER_MCP_PORT, TERMINAL_MCP_PORT } from './mcp-config'
 import { killProcessTree } from './proc'
@@ -105,22 +106,6 @@ function cleanGitError(err: unknown): string {
   // execFile rejects with an Error that has stderr/stdout attached
   const msg = (e?.stderr || e?.stdout || e?.message || String(err)).toString()
   return msg.replace(/^Command failed:[^\n]*\n?/, '').trim()
-}
-
-function defaultShell(): string {
-  if (isWindows) {
-    // Default to Windows PowerShell on Windows. PowerShell ships with every
-    // modern Windows install (5.1 in System32, 7+ as `pwsh` if installed) and
-    // gives users a richer prompt + tab-completion than cmd.exe. The user can
-    // override via TROUPE_SHELL if they prefer cmd, pwsh, or git-bash.
-    return process.env.TROUPE_SHELL || process.env.GITTIM_SHELL || 'powershell.exe'
-  }
-  // macOS Catalina+(2019)默认 shell 是 zsh,bash 已被 Apple 标记为 deprecated。
-  // 实际触发概率很低(process.env.SHELL 一般都设了);但 fallback 用 zsh 比 bash
-  // 更贴合现代 mac 用户的预期 —— shell-integration 也是为 zsh 路径准备的全套
-  // .zshenv/.zprofile/.zshrc wrapper。Linux 上 bash 仍然是普遍默认。
-  if (process.platform === 'darwin') return process.env.SHELL || '/bin/zsh'
-  return process.env.SHELL || '/bin/bash'
 }
 
 export function getCurrentDir(): string {
@@ -244,7 +229,7 @@ export function startPty(webContents: WebContents, opts: PtyStartOpts): void {
 
     // Shell integration injects an OSC 7 cwd-notification hook so PaneToolbar
     // can follow `cd` commands. Falls back to passthrough for unknown shells.
-    const local = shellIntegration(defaultShell())
+    const local = shellIntegration(getShellRuntime().executable)
     shell = local.shell
     args = local.args
     env = local.env
@@ -470,7 +455,7 @@ export async function killPty(paneId: string): Promise<void> {
  *
  * 不能依赖 webContents.once('destroyed') 兜底:`before-quit` 触发时 main 已经
  * 在收尾,destroy handler 内调用的 killPty 是 async 但不被 await,
- * killProcessTree 内部还要起 PowerShell snapshot —— main 退出会直接打断它们。
+ * killProcessTree 内部还要获取进程快照 —— main 退出会直接打断它们。
  * 这里同 killAllTasks 一样 await 完整个清理。
  */
 export async function killAllPtyTrees(): Promise<void> {
@@ -594,8 +579,10 @@ export async function ptyHasRunningProcess(paneId: string): Promise<boolean> {
       return true // pgrep exits 0 only when a match exists
     }
     if (isWindows) {
+      const runtime = getShellRuntime()
+      if (runtime.kind !== 'powershell') return false
       const { stdout } = await execFileP(
-        'powershell',
+        runtime.executable,
         [
           '-NoProfile',
           '-NonInteractive',

@@ -28,7 +28,8 @@ import type {
   UpdateStatus,
   AgentSessionInfo,
   SshProfile,
-  BrowserResourceProxyConfig
+  BrowserResourceProxyConfig,
+  ShellOption
 } from '@shared/types'
 
 // API 暴露给 renderer 的桥接对象。每个方法对应 main 里的 ipcMain.handle / send。
@@ -123,6 +124,7 @@ const api = {
   settingsSet: (patch: Partial<Settings>) => ipcRenderer.send('settings-set', patch),
   settingsSetNow: (patch: Partial<Settings>) =>
     ipcRenderer.invoke('settings-set-now', patch) as Promise<void>,
+  shellList: () => ipcRenderer.invoke('shell-list') as Promise<ShellOption[]>,
   sshProfilesList: () => ipcRenderer.invoke('ssh-profiles-list') as Promise<SshProfile[]>,
   sshProfileSave: (profile: SshProfile) =>
     ipcRenderer.invoke('ssh-profile-save', profile) as Promise<SshProfile>,
