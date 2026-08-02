@@ -14,6 +14,10 @@ src/renderer/components.d.ts
 reasonix.toml
 .codegraph/
 
+# Local agent skills
+.agents/
+AGENTS.md
+
 # 本地环境变量（GH_TOKEN 等）
 .env
 .env.*
