@@ -7,6 +7,8 @@ import { join, dirname, basename } from 'path'
 import { app, shell } from 'electron'
 import { is } from '@electron-toolkit/utils'
 import { updateSettings } from './settings'
+import { getShellRuntime, shellConsoleArgs } from './shell-runtime'
+import { buildWindowsBatchLaunch } from './windows-batch-launch'
 import type { IdeInfo } from '@shared/types'
 
 export type { IdeInfo }
@@ -23,8 +25,8 @@ interface IdeCandidate {
   /** Extra absolute paths to probe; supports `*` wildcard segments. */
   extraPaths?: () => string[]
   /**
-   * Windows registry DisplayName substring(s). The PowerShell sweep over
-   * HKLM/HKCU Uninstall keys collects InstallLocation + DisplayIcon for any
+   * Windows registry DisplayName substring(s). The HKLM/HKCU Uninstall sweep
+   * collects InstallLocation + DisplayIcon for any
    * entry whose DisplayName contains one of these strings.
    */
   registryNames?: string[]
@@ -347,8 +349,9 @@ let registryCache: RegistryEntry[] | null = null
 
 /**
  * Sweep Windows installer registry keys for IDE-like installations. Replaces
- * the `fetch-installed-software` package (stale + extra dep) with one
- * inlined PowerShell query. Hits all three uninstall-key locations:
+ * the `fetch-installed-software` package (stale + extra dep). PowerShell is
+ * used when it is the resolved application shell; reg.exe is the shell-free
+ * fallback. Both paths hit all three uninstall-key locations:
  *
  *   - HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall          (64-bit, system)
  *   - HKLM\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall (32-bit, system)
@@ -356,9 +359,8 @@ let registryCache: RegistryEntry[] | null = null
  *
  * JetBrains Toolbox + most modern installers (VS Code, Cursor, …) write to
  * the per-user (HKCU) hive, which the older PATH-only detection misses
- * entirely. PowerShell startup (~300ms) is acceptable on first detect; the
- * result is cached for the session, refreshable via the toolbar's
- * "重新检测" entry.
+ * entirely. The result is cached for the session, refreshable via the
+ * toolbar's "重新检测" entry.
  */
 async function readWindowsRegistry(): Promise<RegistryEntry[]> {
   if (registryCache) return registryCache
@@ -366,33 +368,90 @@ async function readWindowsRegistry(): Promise<RegistryEntry[]> {
     registryCache = []
     return registryCache
   }
-  const script =
-    '$paths = @(' +
-    "'HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\*'," +
-    "'HKLM:\\SOFTWARE\\WOW6432Node\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\*'," +
-    "'HKCU:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\*'" +
-    '); ' +
-    'Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue | ' +
-    'Where-Object { $_.DisplayName } | ' +
-    'Select-Object DisplayName, InstallLocation, DisplayIcon, Publisher | ' +
-    'ConvertTo-Json -Compress'
-  try {
-    const { stdout } = await execFileP(
-      'powershell',
-      ['-NoProfile', '-NonInteractive', '-Command', script],
-      { timeout: 10_000, windowsHide: true, maxBuffer: 8 * 1024 * 1024 }
-    )
-    const raw = stdout.trim()
-    if (!raw) {
-      registryCache = []
-      return registryCache
+  const commandShell = getShellRuntime()
+  if (commandShell.kind === 'powershell') {
+    const script =
+      '$paths = @(' +
+      "'HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\*'," +
+      "'HKLM:\\SOFTWARE\\WOW6432Node\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\*'," +
+      "'HKCU:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\*'" +
+      '); ' +
+      'Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue | ' +
+      'Where-Object { $_.DisplayName } | ' +
+      'Select-Object DisplayName, InstallLocation, DisplayIcon, Publisher | ' +
+      'ConvertTo-Json -Compress'
+    try {
+      const { stdout } = await execFileP(
+        commandShell.executable,
+        ['-NoProfile', '-NonInteractive', '-Command', script],
+        { timeout: 10_000, windowsHide: true, maxBuffer: 8 * 1024 * 1024 }
+      )
+      const raw = stdout.trim()
+      if (raw) {
+        const parsed: RegistryEntry | RegistryEntry[] = JSON.parse(raw)
+        registryCache = Array.isArray(parsed) ? parsed : [parsed]
+        return registryCache
+      }
+    } catch {
+      // Fall through to reg.exe. It remains available when PowerShell is
+      // missing, blocked by policy, or fails to load on a damaged install.
     }
-    const parsed: RegistryEntry | RegistryEntry[] = JSON.parse(raw)
-    registryCache = Array.isArray(parsed) ? parsed : [parsed]
-  } catch {
-    registryCache = []
   }
+
+  registryCache = await readWindowsRegistryWithReg()
   return registryCache
+}
+
+const WINDOWS_UNINSTALL_KEYS = [
+  'HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall',
+  'HKLM\\SOFTWARE\\WOW6432Node\\Microsoft\\Windows\\CurrentVersion\\Uninstall',
+  'HKCU\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall'
+] as const
+
+function parseRegEntries(output: string): RegistryEntry[] {
+  const entries: RegistryEntry[] = []
+  let current: RegistryEntry | null = null
+
+  const flush = (): void => {
+    if (current?.DisplayName) entries.push(current)
+    current = null
+  }
+
+  for (const line of output.split(/\r?\n/)) {
+    if (/^HKEY_/i.test(line.trim())) {
+      flush()
+      current = {}
+      continue
+    }
+    if (!current) continue
+    const match = line.match(
+      /^\s+(DisplayName|InstallLocation|DisplayIcon|Publisher)\s+REG_\w+\s*(.*)$/i
+    )
+    if (!match) continue
+    const key = match[1] as keyof RegistryEntry
+    current[key] = match[2].trim()
+  }
+  flush()
+  return entries
+}
+
+async function readWindowsRegistryWithReg(): Promise<RegistryEntry[]> {
+  const outputs = await Promise.all(
+    WINDOWS_UNINSTALL_KEYS.map(async (key) => {
+      try {
+        const { stdout } = await execFileP('reg.exe', ['query', key, '/s'], {
+          encoding: 'utf8',
+          timeout: 10_000,
+          windowsHide: true,
+          maxBuffer: 8 * 1024 * 1024
+        })
+        return stdout
+      } catch {
+        return ''
+      }
+    })
+  )
+  return outputs.flatMap(parseRegEntries)
 }
 
 /**
@@ -556,33 +615,23 @@ function exeFromBatchFile(shim: string): string | null {
 }
 
 /**
- * Resolve a launcher path to a direct .exe (Windows only).
- *
- * Strategies in order:
- *   1. Already .exe → pass through
- *   2. Candidate's launcherRelPath → exeRelPath (structural: bin/code.cmd → Code.exe)
- *   3. Hardcoded layout patterns (exeForShim)
- *   4. Parse the .cmd/.bat file for embedded exe references
- *   5. Return null — caller falls back to cmd.exe
+ * Recover an official batch launcher from a cached direct .exe path. Older
+ * cache entries may contain Code.exe because detection used to replace the
+ * working bin/code.cmd shim with the GUI executable.
  */
-function resolveShimToExe(shim: string, candidateId: string): string | null {
-  if (/\.exe$/i.test(shim)) return shim
-
+function launcherForExe(executable: string, candidateId: string): string | null {
   const c = candidates().find((c) => c.id === candidateId)
-  if (c?.launcherRelPath && c?.exeRelPath) {
-    const normLauncher = c.launcherRelPath.replace(/\//g, '\\')
-    const normShim = shim.replace(/\//g, '\\')
-    if (normShim.endsWith('\\' + normLauncher) || normShim === normLauncher) {
-      const root = normShim.slice(0, -normLauncher.length)
-      const exePath = join(root, c.exeRelPath.replace(/\//g, '\\'))
-      if (existsSync(exePath)) return exePath
-    }
-  }
+  if (!c?.launcherRelPath || !c.exeRelPath) return null
+  if (!/\.(cmd|bat)$/i.test(c.launcherRelPath)) return null
 
-  const fromPatterns = exeForShim(shim)
-  if (fromPatterns && /\.exe$/i.test(fromPatterns)) return fromPatterns
+  const normalized = executable.replace(/\//g, '\\')
+  const exeRel = c.exeRelPath.replace(/\//g, '\\')
+  const suffix = '\\' + exeRel
+  if (!normalized.toLowerCase().endsWith(suffix.toLowerCase())) return null
 
-  return exeFromBatchFile(shim)
+  const root = normalized.slice(0, -suffix.length)
+  const launcher = join(root, c.launcherRelPath.replace(/\//g, '\\'))
+  return existsSync(launcher) ? launcher : null
 }
 
 /**
@@ -765,7 +814,7 @@ async function extractIcon(command: string, id?: string): Promise<string | undef
   if (isMac) return extractIconMac(command, id)
 
   try {
-    const target = isWindows ? exeForShim(command) : command
+    const target = isWindows ? exeForShim(command) || exeFromBatchFile(command) : command
     if (!target || !existsSync(target)) return undefined
     // 'large' gives us 48×48 on Windows — better at 2× DPI than the 32×32
     // 'normal' size used previously. The resize below caps payload size.
@@ -794,7 +843,7 @@ let scanning: Promise<IdeInfo[]> | null = null
  * 立即返回 —— 不阻塞 UI 等 system_profiler / 注册表扫描。
  *
  * 设计上**没有**自动预扫(prewarm):mac 上 `system_profiler -json` 首次可能跑
- * 10+ 秒,Windows 也要启动 PowerShell 并串行执行大量 PATH 查询。启动期没有
+ * 10+ 秒,Windows 也要查询注册表并串行执行大量 PATH 查询。启动期没有
  * 缓存时只返回系统入口;完整扫描仅由用户点击"重新检测"触发。
  */
 export function hydrateIdeCache(persisted: IdeInfo[] | undefined | null): void {
@@ -820,7 +869,7 @@ export async function detectIdes(force = false): Promise<IdeInfo[]> {
 
 async function runDetect(): Promise<IdeInfo[]> {
   // Fire both platform-wide enumerations in parallel with PATH lookup so the
-  // total wall-clock cost is one PowerShell startup, not N.
+  // total wall-clock cost is one platform-wide enumeration, not N.
   const [regEntries, macApps] = await Promise.all([readWindowsRegistry(), readMacApplications()])
 
   const found: IdeInfo[] = []
@@ -835,10 +884,10 @@ async function runDetect(): Promise<IdeInfo[]> {
     for (const bin of c.bins) {
       const p = await findInPath(bin)
       if (p) {
-        // Resolve .cmd/.bat shims to their .exe immediately so the launcher
-        // stored in `ide.command` is always a direct exe. This keeps openIde
-        // simple: spawn the exe directly, no cmd.exe middleman.
-        path = resolveShimToExe(p, c.id) || p
+        // Keep the vendor launcher. VS Code-family shims configure their CLI
+        // environment before invoking Electron and can remain usable when
+        // launching the GUI executable directly requires elevation.
+        path = p
         break
       }
     }
@@ -966,7 +1015,8 @@ function openSystemTerminal(cwd: string): Promise<{ success: boolean; error?: st
     }
 
     if (isWindows) {
-      const proc = spawn(windowsCmdPath(), ['/k'], {
+      const commandShell = getShellRuntime()
+      const proc = spawn(commandShell.executable, shellConsoleArgs(commandShell), {
         cwd: folder,
         detached: true,
         stdio: 'ignore',
@@ -994,9 +1044,8 @@ function openSystemTerminal(cwd: string): Promise<{ success: boolean; error?: st
 }
 
 /**
- * Launch the picked IDE on `cwd`. Detection (detectIdes) resolves launcher
- * paths to .exe on Windows so we can spawn the GUI process directly without
- * cmd.exe middleman — no flashing console, no orphan intermediates.
+ * Launch the picked IDE on `cwd`. Windows batch launchers go through the
+ * guaranteed system command processor; direct GUI executables stay shell-free.
  * macOS .app bundles go through `open -a` so Finder does the right thing.
  * Detached + stdio 'ignore' so closing Troupe doesn't drag the IDE down.
  */
@@ -1025,18 +1074,23 @@ export function openIde(ideId: string, cwd: string): Promise<{ success: boolean;
       return
     }
     try {
+      const preferredCommand =
+        isWindows && /\.exe$/i.test(ide.command)
+          ? launcherForExe(ide.command, ideId) || ide.command
+          : ide.command
+
       // Surface the resolved launcher even when it doesn't exist anymore
       // (uninstalled / disk renamed between detection and click). Without
       // this check spawn's ENOENT comes back without context.
-      if (!existsSync(ide.command)) {
+      if (!existsSync(preferredCommand)) {
         resolve({
           success: false,
-          error: `IDE 启动器不存在：${ide.command}\n请点「重新检测」刷新列表`
+          error: `IDE 启动器不存在：${preferredCommand}\n请点「重新检测」刷新列表`
         })
         return
       }
 
-      const lower = ide.command.toLowerCase()
+      const lower = preferredCommand.toLowerCase()
       const isBatch = isWindows && (lower.endsWith('.cmd') || lower.endsWith('.bat'))
       const isMacBundle = isMac && lower.endsWith('.app')
 
@@ -1048,24 +1102,20 @@ export function openIde(ideId: string, cwd: string): Promise<{ success: boolean;
 
       let cmd: string
       let args: string[]
+      let spawnEnv: NodeJS.ProcessEnv | undefined
+      let windowsVerbatimArguments = false
       if (isBatch) {
-        // Detection should have already resolved .cmd → .exe via
-        // resolveShimToExe. If we still see a .cmd here, try one last
-        // resolution; fall back to cmd.exe only when nothing else works.
-        const exe = resolveShimToExe(ide.command, ideId)
-        if (exe && /\.exe$/i.test(exe)) {
-          cmd = exe
-          args = [folderArg]
-        } else {
-          cmd = 'cmd.exe'
-          args = ['/d', '/s', '/c', ide.command, folderArg]
-        }
+        const batch = buildWindowsBatchLaunch(windowsCmdPath(), preferredCommand, folderArg)
+        cmd = batch.command
+        args = batch.args
+        spawnEnv = batch.env
+        windowsVerbatimArguments = batch.windowsVerbatimArguments
       } else if (isMacBundle) {
         // No CLI shim in the bundle — use `open -a` with the .app path.
         cmd = 'open'
         args = ['-a', ide.command, folderArg]
       } else {
-        cmd = ide.command
+        cmd = preferredCommand
         args = [folderArg]
       }
 
@@ -1077,7 +1127,7 @@ export function openIde(ideId: string, cwd: string): Promise<{ success: boolean;
       // window hidden, which looks exactly like "click did nothing" — the
       // process runs, single-instance IPC fires, but no visible window ever
       // appears. So only set the flag on the shell-mediated paths.
-      const isViaShell = cmd === 'cmd.exe' || cmd === 'open'
+      const isViaShell = isBatch || cmd === 'open'
 
       // Dev-mode diagnostic: log what we're actually about to spawn. Visible
       // in the terminal running `yarn dev` — invaluable when "nothing
@@ -1088,7 +1138,9 @@ export function openIde(ideId: string, cwd: string): Promise<{ success: boolean;
       const proc = spawn(cmd, args, {
         detached: true,
         stdio: 'ignore',
-        windowsHide: isViaShell
+        windowsHide: isViaShell,
+        env: spawnEnv,
+        windowsVerbatimArguments
       })
       if (is.dev) console.log('[ide] spawned pid:', proc.pid)
       // Also log the eventual exit. If Code.exe (or whatever) dies within a
@@ -1106,7 +1158,7 @@ export function openIde(ideId: string, cwd: string): Promise<{ success: boolean;
         // Append the launcher path so the renderer's ElMessage shows the
         // exact path that failed — invaluable when detection picks up an
         // unexpected sibling tool (bun/deno/some `code` shim).
-        resolve({ success: false, error: `${err.message}\n路径: ${ide.command}` })
+        resolve({ success: false, error: `${err.message}\n路径: ${preferredCommand}` })
       })
       proc.once('spawn', () => {
         if (settled) return
