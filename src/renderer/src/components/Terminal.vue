@@ -6,13 +6,14 @@ import { FitAddon } from '@xterm/addon-fit'
 import { SearchAddon } from '@xterm/addon-search'
 import { WebLinksAddon } from '@xterm/addon-web-links'
 import { Unicode11Addon } from '@xterm/addon-unicode11'
-import { enableWebglRenderer, waitForTerminalFonts } from '../utils/xtermRenderer'
+import { waitForTerminalFonts } from '../utils/xtermRenderer'
 import {
   dispatchTerminalSubmit,
   TERMINAL_VT_EXTENSIONS,
   TerminalInputHandler,
   TerminalPasteSubmitQueue
 } from '../utils/terminalKeyboard'
+import { XtermOutputAdapter } from '../utils/terminalOutput'
 import {
   Copy,
   ClipboardPaste,
@@ -166,6 +167,30 @@ const terminal = new Terminal({
   vtExtensions: TERMINAL_VT_EXTENSIONS
 })
 
+interface TerminalViewportSnapshot {
+  bufferType: 'normal' | 'alternate'
+  viewportY: number
+}
+
+const captureScrolledViewport = (): TerminalViewportSnapshot | null => {
+  const buffer = terminal.buffer.active
+  if (buffer.viewportY >= buffer.baseY) return null
+  return { bufferType: buffer.type, viewportY: buffer.viewportY }
+}
+
+const restoreViewport = (snapshot: TerminalViewportSnapshot | null): void => {
+  if (!snapshot || !terminal.element?.isConnected) return
+  const buffer = terminal.buffer.active
+  if (buffer.type !== snapshot.bufferType) return
+  terminal.scrollToLine(Math.min(snapshot.viewportY, buffer.baseY))
+}
+
+const pasteTextPreservingViewport = (text: string): void => {
+  const viewport = captureScrolledViewport()
+  terminal.paste(text)
+  restoreViewport(viewport)
+}
+
 const terminalMcpInputQueue = new TerminalPasteSubmitQueue(
   (text) => terminal.paste(text),
   () => {
@@ -261,12 +286,14 @@ const copySelection = async (): Promise<void> => {
   // padding trimmed and soft-wrapped rows joined — matches the OS terminal.
   const text = terminal.getSelection()
   if (text) {
+    const viewport = captureScrolledViewport()
     try {
       await navigator.clipboard.writeText(text)
     } catch {
       // clipboard write denied
     }
     terminal.clearSelection()
+    restoreViewport(viewport)
   }
 }
 
@@ -276,7 +303,7 @@ const pasteFromClipboard = async (): Promise<void> => {
     // NSPasteboard / CF_DIB 中的位图 —— navigator.clipboard.read() 只能拿文本。
     const imgPath = await window.api.clipboardReadImage()
     if (imgPath) {
-      terminal.paste(imgPath)
+      pasteTextPreservingViewport(imgPath)
       return
     }
   } catch {
@@ -284,7 +311,7 @@ const pasteFromClipboard = async (): Promise<void> => {
   }
   try {
     const text = await navigator.clipboard.readText()
-    if (text) terminal.paste(text)
+    if (text) pasteTextPreservingViewport(text)
   } catch {
     // clipboard read denied or empty
   }
@@ -543,13 +570,13 @@ const onCopy = async (): Promise<void> => {
   if (!menuHasSelection.value) return
   await copySelection()
   contextMenuVisible.value = false
-  terminal.textarea?.focus()
+  terminal.focus()
 }
 
 const onPaste = async (): Promise<void> => {
   await pasteFromClipboard()
   contextMenuVisible.value = false
-  terminal.textarea?.focus()
+  terminal.focus()
 }
 
 const onSelectAll = (): void => {
@@ -682,6 +709,48 @@ let termElement: HTMLElement | null = null
 let termTextarea: HTMLTextAreaElement | null = null
 let lastCols = 0
 let lastRows = 0
+let ptyStarted = false
+const outputAdapter = new XtermOutputAdapter()
+const SCROLLBACK_REPLAY_IDLE_MS = 200
+let replayViewport: TerminalViewportSnapshot | null = null
+let replayViewportTimer: ReturnType<typeof setTimeout> | null = null
+
+const cancelReplayViewportRestore = (): void => {
+  if (replayViewportTimer !== null) {
+    clearTimeout(replayViewportTimer)
+    replayViewportTimer = null
+  }
+  replayViewport = null
+}
+
+const scheduleReplayViewportRelease = (): void => {
+  if (!replayViewport) return
+  if (replayViewportTimer !== null) clearTimeout(replayViewportTimer)
+  replayViewportTimer = setTimeout(() => {
+    restoreViewport(replayViewport)
+    replayViewport = null
+    replayViewportTimer = null
+  }, SCROLLBACK_REPLAY_IDLE_MS)
+}
+
+const writeTerminalOutput = (chunk: string, acknowledge: () => void): void => {
+  const normalBufferRows = terminal.buffer.active.type === 'normal' ? terminal.rows : 0
+  const adapted = outputAdapter.push(chunk, normalBufferRows)
+  if (adapted.startsCodexScrollbackReplay && !replayViewport) {
+    replayViewport = captureScrolledViewport()
+  }
+
+  if (!adapted.data) {
+    acknowledge()
+    return
+  }
+
+  terminal.write(adapted.data, () => {
+    restoreViewport(replayViewport)
+    scheduleReplayViewportRelease()
+    acknowledge()
+  })
+}
 
 const sendResize = (): void => {
   try {
@@ -692,7 +761,7 @@ const sendResize = (): void => {
   }
   const cols = terminal.cols
   const rows = terminal.rows
-  if (cols > 0 && rows > 0 && (cols !== lastCols || rows !== lastRows)) {
+  if (ptyStarted && cols > 0 && rows > 0 && (cols !== lastCols || rows !== lastRows)) {
     lastCols = cols
     lastRows = rows
     window.api.ptyResize(props.paneId, cols, rows)
@@ -722,23 +791,21 @@ onMounted(async () => {
   }
 
   terminal.open(terminalRef.value)
-  enableWebglRenderer(terminal)
-  try {
-    fitAddon.fit()
-  } catch {
-    // ignore — first layout may not be ready
-  }
-  lastCols = terminal.cols
-  lastRows = terminal.rows
+  // Keep interactive terminals on xterm's built-in DOM renderer. WebGL glyph
+  // atlases are shared by panes with identical settings; invalidating one can
+  // leave unchanged rows in another pane blank until a resize forces a redraw.
   termElement = terminal.element ?? null
   termTextarea = terminal.textarea ?? null
   termElement?.addEventListener('contextmenu', onContextMenu)
+  termElement?.addEventListener('pointerdown', cancelReplayViewportRestore)
+  termElement?.addEventListener('wheel', cancelReplayViewportRestore, { passive: true })
   termTextarea?.addEventListener('focus', onTerminalFocus)
+  termTextarea?.addEventListener('keydown', cancelReplayViewportRestore)
 
-  unsubscribeData = window.api.onPtyData(props.paneId, (chunk, acknowledge) =>
-    terminal.write(chunk, acknowledge)
-  )
+  unsubscribeData = window.api.onPtyData(props.paneId, writeTerminalOutput)
   unsubscribeExit = window.api.onPtyExit(props.paneId, (code) => {
+    const pendingOutput = outputAdapter.flush()
+    if (pendingOutput) terminal.write(pendingOutput)
     terminal.writeln(`\r\n\x1b[33m[process exited with code ${code}]\x1b[0m`)
   })
   unsubscribeTerminalMcpInput = window.api.onTerminalMcpInput((payload) => {
@@ -746,20 +813,40 @@ onMounted(async () => {
     terminalMcpInputQueue.enqueue(payload.text)
   })
 
+  // Observe immediately after open(), before any startup await. Parent layout
+  // and font metrics can settle while the PTY is being prepared.
+  resizeObserver = new ResizeObserver(() => scheduleResize())
+  resizeObserver.observe(terminalRef.value)
+
+  // Fit only after the configured monospace font and one browser layout frame
+  // are ready. Agent TUIs draw their input border from the PTY column count, so
+  // starting with fallback-font metrics leaves the first prompt one column wide.
+  await waitForTerminalFonts()
+  await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
+  if (!terminalRef.value?.isConnected) return
+  sendResize()
+
   // ptyStart 失败的真实原因(ENOENT 找不到 shell、EACCES 权限拒绝、cwd 不存在
   // 等)只会以 unhandled rejection 形式出现在 devtools console —— 用户看到的
   // 是一个完全空白的终端、无任何提示。这里 catch 后把错误写进 terminal,让用
   // 户至少能知道哪里出问题(以及 paneId,方便排查日志)。仍然挂 ResizeObserver
   // / focus,因为 terminal 本身是好的,只是没接上 PTY。
   try {
+    const initialCols = terminal.cols
+    const initialRows = terminal.rows
     await window.api.ptyStart({
       paneId: props.paneId,
       kind: props.sshProfileId ? 'ssh' : 'local',
-      cols: terminal.cols,
-      rows: terminal.rows,
+      cols: initialCols,
+      rows: initialRows,
       cwd: props.cwd || undefined,
       sshProfileId: props.sshProfileId || undefined
     })
+    ptyStarted = true
+    lastCols = initialCols
+    lastRows = initialRows
+    // A parent resize may have landed while the IPC request was in flight.
+    sendResize()
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err)
     terminal.writeln(`\r\n\x1b[31m[无法启动终端会话: ${msg}]\x1b[0m`)
@@ -768,17 +855,6 @@ onMounted(async () => {
     if (props.sshProfileId) terminal.writeln(`\x1b[90m  ssh:  ${props.sshProfileName}\x1b[0m`)
   }
 
-  // Watch the container — splits/window resizes/drags all change its size.
-  // 通过 rAF 合并连续触发,避免拖拽时高频 fit() + ptyResize IPC。
-  resizeObserver = new ResizeObserver(() => scheduleResize())
-  resizeObserver.observe(terminalRef.value)
-
-  // The configured monospace font may finish loading after the first fit.
-  // Recalculate the grid and redraw once metrics stabilize to prevent glyph
-  // drift, stale rows and PTY wrapping at a different column than xterm.
-  await waitForTerminalFonts()
-  if (!terminalRef.value?.isConnected) return
-  sendResize()
   terminal.refresh(0, terminal.rows - 1)
 
   terminal.focus()
@@ -809,7 +885,10 @@ window.addEventListener('blur', closeContextMenu)
 onUnmounted(() => {
   window.removeEventListener('blur', closeContextMenu)
   termElement?.removeEventListener('contextmenu', onContextMenu)
+  termElement?.removeEventListener('pointerdown', cancelReplayViewportRestore)
+  termElement?.removeEventListener('wheel', cancelReplayViewportRestore)
   termTextarea?.removeEventListener('focus', onTerminalFocus)
+  termTextarea?.removeEventListener('keydown', cancelReplayViewportRestore)
   termElement = null
   termTextarea = null
   resizeObserver?.disconnect()
@@ -817,6 +896,7 @@ onUnmounted(() => {
     cancelAnimationFrame(resizeRafId)
     resizeRafId = null
   }
+  cancelReplayViewportRestore()
   unsubscribeData?.()
   unsubscribeExit?.()
   unsubscribeBrowserActivate?.()
@@ -830,7 +910,7 @@ onUnmounted(() => {
 <template>
   <div
     class="terminal-wrapper"
-    @click="() => terminal.textarea?.focus()"
+    @click="() => terminal.focus()"
     @dragenter.capture="onTerminalDragOver"
     @dragover.capture="onTerminalDragOver"
     @drop.capture="onTerminalDrop"

@@ -252,8 +252,8 @@ app.whenReady().then(() => {
   })
 
   // 用上次扫描的 IDE 列表填充 main 的内存 cache,让首个 IdeLauncher mount 时
-  // ide-list IPC 直接返回缓存,不必等本次完整扫描(mac 上 system_profiler 首次
-  // 10+ 秒,会占满 libuv 线程池让其它 execFile 排队 —— 这是启动卡顿的主要来源)。
+  // ide-list IPC 直接返回缓存,不必等检测 worker 完整扫描(mac 上 system_profiler
+  // 首次可能耗时 10+ 秒)。
   // 必须在注册 `ide-list` ipcMain.handle 之前调用。
   hydrateIdeCache(readSettings().cachedIdes)
 

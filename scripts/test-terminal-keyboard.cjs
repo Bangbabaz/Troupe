@@ -21,6 +21,7 @@ const {
   TerminalInputHandler,
   TerminalPasteSubmitQueue
 } = loadTypeScript('src/renderer/src/utils/terminalKeyboard.ts')
+const { XtermOutputAdapter } = loadTypeScript('src/renderer/src/utils/terminalOutput.ts')
 const { createTerminalEnvironment } = loadTypeScript('src/main/terminal-env.ts')
 const { createShortcutDefs, eventToShortcut, shortcutDisplayParts, shortcutMatches } =
   loadTypeScript('src/renderer/src/shortcuts.ts')
@@ -38,6 +39,49 @@ function key(overrides = {}) {
     isComposing: false,
     ...overrides
   }
+}
+
+// Codex's row-1 region scroll must become a full-screen scroll so xterm keeps
+// the displaced transcript rows in scrollback. PTY chunk boundaries may occur
+// at any byte in the control sequence.
+{
+  const source = `before\x1b[1;20r\x1b[4S\x1b[rafter`
+  const expected = `before\x1b[r\x1b[999;1H\n\n\n\n\x1b[Hafter`
+
+  for (let split = 0; split <= source.length; split++) {
+    const adapter = new XtermOutputAdapter()
+    const first = adapter.push(source.slice(0, split), 24)
+    const second = adapter.push(source.slice(split), 24)
+    assert.equal(first.data + second.data + adapter.flush(), expected)
+  }
+
+  const charAdapter = new XtermOutputAdapter()
+  let charOutput = ''
+  for (const char of source) charOutput += charAdapter.push(char, 24).data
+  charOutput += charAdapter.flush()
+  assert.equal(charOutput, expected)
+}
+
+// Sequences that do not match Codex's bounded region operation pass through.
+{
+  const adapter = new XtermOutputAdapter()
+  const unrelated = `\x1b[31mred\x1b[0m\x1b[1;30r\x1b[4S\x1b[r\x1b[1;24r\x1b[4S\x1b[r`
+  assert.equal(adapter.push(unrelated, 24).data + adapter.flush(), unrelated)
+}
+
+// Only Codex's destructive transcript replay is reported, including when the
+// sequence is split across PTY chunks. An unrelated CSI 3J stays untouched.
+{
+  const replay = `prefix\x1b[r\x1b[0m\x1b[H\x1b[2J\x1b[3Jsuffix`
+  for (let split = 0; split <= replay.length; split++) {
+    const adapter = new XtermOutputAdapter()
+    const first = adapter.push(replay.slice(0, split), 24)
+    const second = adapter.push(replay.slice(split), 24)
+    assert.equal(first.startsCodexScrollbackReplay || second.startsCodexScrollbackReplay, true)
+  }
+
+  const adapter = new XtermOutputAdapter()
+  assert.equal(adapter.push('prefix\x1b[3Jsuffix', 24).startsCodexScrollbackReplay, false)
 }
 
 // Paste and submit are separated by a quiet period. Multiple Agent messages
