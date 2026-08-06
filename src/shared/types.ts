@@ -76,6 +76,7 @@ export interface BranchInfo {
 }
 
 export interface DiffStats {
+  files: number
   added: number
   deleted: number
 }

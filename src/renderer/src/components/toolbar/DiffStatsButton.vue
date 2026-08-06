@@ -46,15 +46,13 @@ async function openDiff(): Promise<void> {
 </script>
 
 <template>
-  <el-tooltip
-    v-if="diffStats.added || diffStats.deleted"
-    content="查看改动 (diff)"
-    placement="bottom"
-    :show-after="300"
-  >
+  <el-tooltip v-if="diffStats.files" content="查看改动 (diff)" placement="bottom" :show-after="300">
     <button class="diff-stats" @click="openDiff">
-      <span class="diff-added">+{{ diffStats.added }}</span>
-      <span class="diff-deleted">-{{ diffStats.deleted }}</span>
+      <span v-if="diffStats.added" class="diff-added">+{{ diffStats.added }}</span>
+      <span v-if="diffStats.deleted" class="diff-deleted">-{{ diffStats.deleted }}</span>
+      <span v-if="!diffStats.added && !diffStats.deleted" class="diff-files">
+        {{ diffStats.files }} 个文件
+      </span>
     </button>
   </el-tooltip>
 
@@ -79,4 +77,8 @@ async function openDiff(): Promise<void> {
   </el-dialog>
 </template>
 
-<style scoped lang="scss" src="@renderer/assets/style/components/toolbar/DiffStatsButton.scss"></style>
+<style
+  scoped
+  lang="scss"
+  src="@renderer/assets/style/components/toolbar/DiffStatsButton.scss"
+></style>

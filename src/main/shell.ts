@@ -12,6 +12,7 @@ import { createTerminalEnvironment } from './terminal-env'
 import { AGENT_MCP_PORT, BROWSER_MCP_PORT, TERMINAL_MCP_PORT } from './mcp-config'
 import { killProcessTree } from './proc'
 import { readSettings } from './settings'
+import { getWorkingTreeDiff, getWorkingTreeDiffStats } from './git-working-tree-diff'
 import type {
   BranchInfo,
   WorktreeInfo,
@@ -816,28 +817,8 @@ export async function getGitBranches(cwd: string): Promise<BranchInfo[]> {
   return branches
 }
 
-// Stats must match the diff viewer (getGitDiff), which diffs vs HEAD —
-// staged + unstaged. Plain `git diff --shortstat` only counts unstaged
-// changes, so the badge undercounted once anything was `git add`ed. Same
-// unborn-HEAD fallback as getGitDiff.
-function parseShortstat(stdout: string): { added: number; deleted: number } {
-  const added = (stdout.match(/(\d+) insertion/) || [])[1]
-  const deleted = (stdout.match(/(\d+) deletion/) || [])[1]
-  return { added: added ? parseInt(added) : 0, deleted: deleted ? parseInt(deleted) : 0 }
-}
-
 export async function getGitDiffStats(cwd: string): Promise<DiffStats> {
-  try {
-    const { stdout } = await execFileP('git', ['diff', 'HEAD', '--shortstat'], { ...GIT_OPTS, cwd })
-    return parseShortstat(stdout)
-  } catch {
-    try {
-      const { stdout } = await execFileP('git', ['diff', '--shortstat'], { ...GIT_OPTS, cwd })
-      return parseShortstat(stdout)
-    } catch {
-      return { added: 0, deleted: 0 }
-    }
-  }
+  return getWorkingTreeDiffStats(cwd)
 }
 
 export async function checkoutGitBranch(
@@ -1049,29 +1030,11 @@ export async function gitCommitBranches(
 }
 
 /**
- * Full working-tree diff vs HEAD (staged + unstaged) for the read-only viewer.
- * Falls back to `git diff` when there's no commit yet (unborn HEAD). Capped at
- * 10 MB so a huge diff can't blow up the IPC payload / renderer.
+ * Full working-tree diff (staged + unstaged + untracked) for the read-only
+ * viewer. Capped at 10 MB so a huge diff can't blow up the IPC payload / renderer.
  */
 export async function getGitDiff(cwd: string): Promise<DiffPayload> {
-  const opts = { ...GIT_OPTS, cwd, maxBuffer: 10 * 1024 * 1024, timeout: 15_000 }
-  try {
-    const { stdout } = await execFileP('git', ['diff', 'HEAD'], opts)
-    return { diff: stdout, truncated: false }
-  } catch (err) {
-    const e = err as { code?: string; stdout?: string }
-    // maxBuffer exceeded still yields partial stdout — show what we have.
-    if (e?.code === 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER' && e.stdout) {
-      return { diff: e.stdout, truncated: true }
-    }
-    // Unborn branch (no HEAD yet): fall back to the plain working-tree diff.
-    try {
-      const { stdout } = await execFileP('git', ['diff'], opts)
-      return { diff: stdout, truncated: false }
-    } catch {
-      return { diff: '', truncated: false }
-    }
-  }
+  return getWorkingTreeDiff(cwd)
 }
 
 // ---------------------------------------------------------------------------

@@ -41,7 +41,7 @@ const emit = defineEmits<{
 const isRepo = ref(false)
 const currentBranch = ref<string | null>(null)
 const branches = ref<BranchInfo[]>([])
-const diffStats = ref<DiffStats>({ added: 0, deleted: 0 })
+const diffStats = ref<DiffStats>({ files: 0, added: 0, deleted: 0 })
 const mergeStatus = ref<MergeStatus | null>(null)
 
 const locationName = computed(() => {
@@ -73,7 +73,7 @@ const refresh = async (mode: 'fast' | 'full' = 'full'): Promise<void> => {
     currentBranch.value = null
     branches.value = []
     mergeStatus.value = null
-    diffStats.value = { added: 0, deleted: 0 }
+    diffStats.value = { files: 0, added: 0, deleted: 0 }
     return
   }
   const cwd = props.cwd
@@ -86,7 +86,7 @@ const refresh = async (mode: 'fast' | 'full' = 'full'): Promise<void> => {
       currentBranch.value = null
       branches.value = []
       mergeStatus.value = null
-      diffStats.value = { added: 0, deleted: 0 }
+      diffStats.value = { files: 0, added: 0, deleted: 0 }
       return
     }
     // 当前分支先落 UI，不再等待 diff / merge / branches 全部完成。
