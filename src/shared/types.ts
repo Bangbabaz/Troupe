@@ -258,6 +258,8 @@ export interface Settings {
   paneSelectedIdeIds?: Record<string, string>
   /** 每个终端面板最后选中的后台任务 ID，key 为 paneId。 */
   paneSelectedTaskIds?: Record<string, string>
+  /** 每个终端面板按工作目录保存的后台任务 ID，第一层 key 为 paneId。 */
+  paneDirectorySelectedTaskIds?: Record<string, Record<string, string>>
   /**
    * 上一次 detectIdes 的结果(含 iconDataUrl)。启动期 hydrate 进 main 的 cache,
    * 让 IdeLauncher 第一帧就能拿到 IDE 列表 + 真实图标,不需要等异步扫描。

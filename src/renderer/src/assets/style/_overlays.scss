@@ -67,6 +67,53 @@
     color: var(--el-text-color-secondary);
   }
 
+  .has-submenu {
+    position: relative;
+  }
+
+  .cm-submenu-chevron {
+    flex-shrink: 0;
+    color: var(--el-text-color-secondary);
+  }
+
+  .submenu-left > .cm-submenu-chevron {
+    transform: rotate(180deg);
+  }
+
+  .cm-submenu {
+    display: none;
+    position: absolute;
+    bottom: -5px;
+    z-index: 1;
+    min-width: 260px;
+    max-width: min(320px, calc(100vw - 8px));
+    max-height: calc(100vh - 8px);
+    overflow-y: auto;
+    padding: 4px;
+    border: 1px solid var(--el-border-color-light);
+    border-radius: $radius-lg;
+    background: var(--el-bg-color-overlay);
+    box-shadow: var(--el-box-shadow);
+
+    &.right {
+      left: calc(100% - 2px);
+    }
+
+    &.left {
+      right: calc(100% - 2px);
+    }
+
+    .cm-server-label {
+      @include ellipsis;
+      max-width: 230px;
+    }
+  }
+
+  .has-submenu:hover > .cm-submenu,
+  .has-submenu:focus-within > .cm-submenu {
+    display: block;
+  }
+
   .cm-divider {
     height: 1px;
     margin: 4px 6px;
@@ -95,11 +142,15 @@
   }
 
   .el-select-dropdown__item {
+    display: flex;
+    align-items: center;
     min-height: 32px;
+    height: auto;
     margin-bottom: 2px;
     padding: 6px 9px;
     border-radius: 5px;
     color: var(--el-text-color-regular);
+    line-height: 18px;
 
     &:hover,
     &.is-hovering {

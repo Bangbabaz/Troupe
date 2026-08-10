@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, watch } from 'vue'
 import { ChevronsUpDown, Play, RotateCw, Square, Plus, Settings2 } from 'lucide-vue-next'
-import { useTasks } from '../../composables/useTasks'
+import { taskDirectoryKey, useTasks } from '../../composables/useTasks'
 import type { TaskMeta } from '@shared/types'
 
 // 工具栏的命令运行入口。**不依赖 git** —— 任何 cwd 都能用,所以本组件在
@@ -24,7 +24,7 @@ const emit = defineEmits<{
   manageTasks: [cwd?: string, newDraft?: boolean]
 }>()
 
-const { allTasks, paneSelectedIds, selectPaneTask } = useTasks()
+const { allTasks, paneSelectedIds, paneDirectorySelectedIds, selectPaneTask } = useTasks()
 
 const normPath = (p: string | undefined): string => {
   if (!p) return ''
@@ -40,15 +40,37 @@ const samePath = (a: string | undefined, b: string | undefined): boolean => {
 const paneTasks = computed(() =>
   props.cwd ? allTasks.value.filter((t) => samePath(t.cwd, props.cwd)) : []
 )
-const selectedId = computed(() => paneSelectedIds.value[props.paneId] ?? null)
-// 只在当前 pane 的 paneTasks 中查找该 pane 最后选中的任务。跨 cwd 时暂时显示
-// "选择命令"，回到原 cwd 后仍可恢复。
+const selectedId = computed(() => {
+  const directory = taskDirectoryKey(props.cwd)
+  return (
+    paneDirectorySelectedIds.value[props.paneId]?.[directory] ??
+    paneSelectedIds.value[props.paneId] ??
+    null
+  )
+})
 const selectedTask = computed<TaskMeta | null>(
   () => paneTasks.value.find((t) => t.id === selectedId.value) || null
 )
 const runningTasks = computed(() => paneTasks.value.filter((t) => t.status === 'running'))
 
-const onPickCommand = (id: string | null): void => selectPaneTask(props.paneId, id)
+// cwd 变化时恢复该目录上次选择；第一次进入目录则激活第一条命令。
+// 同时把旧版仅按 pane 保存的选择迁移到当前目录。
+watch(
+  paneTasks,
+  (tasks) => {
+    const directory = taskDirectoryKey(props.cwd)
+    const directorySelectedId = paneDirectorySelectedIds.value[props.paneId]?.[directory]
+    const activeId = tasks.some((task) => task.id === selectedId.value)
+      ? selectedId.value
+      : (tasks[0]?.id ?? null)
+    if (activeId !== selectedId.value || directorySelectedId !== activeId) {
+      selectPaneTask(props.paneId, props.cwd, activeId)
+    }
+  },
+  { immediate: true }
+)
+
+const onPickCommand = (id: string | null): void => selectPaneTask(props.paneId, props.cwd, id)
 
 const runSelected = async (): Promise<void> => {
   if (selectedTask.value) await window.api.taskStart({ id: selectedTask.value.id })
@@ -61,7 +83,7 @@ const stopTask = async (id: string): Promise<void> => {
 
 <template>
   <el-select
-    :model-value="selectedId"
+    :model-value="selectedTask?.id ?? null"
     class="toolbar-select task-select"
     popper-class="task-pick-dropdown"
     size="small"

@@ -232,6 +232,7 @@ const api = {
   pathExists: (p: string) => ipcRenderer.invoke('path-exists', p) as Promise<boolean>,
 
   // ---- Browser ------------------------------------------------------------
+  browserWillOpen: () => ipcRenderer.send('browser-will-open'),
   browserRegister: (paneId: string, webContentsId: number) =>
     ipcRenderer.invoke('browser-register', paneId, webContentsId) as Promise<void>,
   browserUnregister: (paneId: string) =>

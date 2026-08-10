@@ -340,6 +340,36 @@ const useSshProfile = (profile: SshProfile): void => {
   sshDraft.value = { ...profile, password: '' }
 }
 
+const openSshPane = (fromPaneId: string, profileId: string): boolean => {
+  const newId =
+    onSplit(fromPaneId, 'row', paneCwdFor(fromPaneId)) ||
+    onSplit(fromPaneId, 'column', paneCwdFor(fromPaneId))
+  if (!newId) return false
+  paneTerminalState.value = {
+    ...paneTerminalState.value,
+    [newId]: { kind: 'ssh', profileId }
+  }
+  setActive(newId)
+  return true
+}
+
+const connectSavedSsh = (fromPaneId: string, profileId: string): void => {
+  if (!sshProfileById(profileId)) {
+    ElMessage.error('SSH 连接配置不存在，请刷新后重试')
+    return
+  }
+  if (!openSshPane(fromPaneId, profileId)) {
+    ElMessage.warning('当前面板空间不足，无法创建 SSH 终端')
+  }
+}
+
+const manageSshFromPane = (paneId: string): void => {
+  const activeProfile = sshProfileById(paneSshProfileId(paneId))
+  const selected = activeProfile || sshProfiles.value[0]
+  sshDraft.value = selected ? { ...selected, password: '' } : makeSshDraft()
+  showSshDialog.value = true
+}
+
 const connectSsh = async (): Promise<void> => {
   if (sshConnecting.value) return
   sshConnecting.value = true
@@ -357,17 +387,10 @@ const connectSsh = async (): Promise<void> => {
 
     const from = activeId.value || layoutResult.value.panes[0]?.id || null
     if (!from) return
-    const newId =
-      onSplit(from, 'row', paneCwdFor(from)) || onSplit(from, 'column', paneCwdFor(from))
-    if (!newId) {
+    if (!openSshPane(from, saved.id)) {
       ElMessage.warning('当前面板空间不足，连接信息已保存')
       return
     }
-    paneTerminalState.value = {
-      ...paneTerminalState.value,
-      [newId]: { kind: 'ssh', profileId: saved.id }
-    }
-    setActive(newId)
     showSshDialog.value = false
   } catch (err) {
     ElMessage.error(err instanceof Error ? err.message : String(err))
@@ -1476,6 +1499,7 @@ onUnmounted(() => {
             :cwd="paneCwd[pane.id] ?? cwd"
             :ssh-profile-id="paneSshProfileId(pane.id)"
             :ssh-profile-name="sshProfileLabel(paneSshProfileId(pane.id))"
+            :ssh-profiles="sshProfiles"
             :font-size="appFontSize"
             :scrollback="appScrollback"
             :shortcuts="shortcutOverrides"
@@ -1489,6 +1513,8 @@ onUnmounted(() => {
             @cwd-change="onCwdChange"
             @font-size-change="onFontSizeChange"
             @open-settings="showSettings = true"
+            @connect-ssh="connectSavedSsh"
+            @manage-ssh="manageSshFromPane"
             @manage-tasks="(cwd?: string, nd?: boolean) => openTaskManager(null, cwd ?? null, !!nd)"
             @open-agent-session="openAgentSession"
           />

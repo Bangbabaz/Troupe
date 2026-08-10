@@ -27,6 +27,14 @@ import type { TaskMeta } from '@shared/types'
 const allTasks = ref<TaskMeta[]>([])
 const selectedId = ref<string | null>(null)
 const paneSelectedIds = ref<Record<string, string>>({})
+const paneDirectorySelectedIds = ref<Record<string, Record<string, string>>>({})
+
+export function taskDirectoryKey(path: string | undefined): string {
+  if (!path) return ''
+  let normalized = path.replace(/\\/g, '/').replace(/\/+$/, '')
+  if (/^[a-zA-Z]:/.test(normalized)) normalized = normalized.toLowerCase()
+  return normalized
+}
 
 // 当已选中的任务从全局列表消失(被删除)时,自动清空选中。
 // 放在模块顶层 —— 只注册一次,不需等 init()。
@@ -41,6 +49,22 @@ watch(allTasks, (tasks) => {
   if (Object.keys(next).length !== Object.keys(paneSelectedIds.value).length) {
     paneSelectedIds.value = next
     window.api.settingsSet({ paneSelectedTaskIds: next })
+  }
+
+  let directorySelectionsChanged = false
+  const nextDirectorySelections: Record<string, Record<string, string>> = {}
+  for (const [paneId, selections] of Object.entries(paneDirectorySelectedIds.value)) {
+    const validSelections = Object.fromEntries(
+      Object.entries(selections).filter(([, taskId]) => validIds.has(taskId))
+    )
+    if (Object.keys(validSelections).length) nextDirectorySelections[paneId] = validSelections
+    if (Object.keys(validSelections).length !== Object.keys(selections).length) {
+      directorySelectionsChanged = true
+    }
+  }
+  if (directorySelectionsChanged) {
+    paneDirectorySelectedIds.value = nextDirectorySelections
+    window.api.settingsSet({ paneDirectorySelectedTaskIds: nextDirectorySelections })
   }
 })
 
@@ -62,6 +86,7 @@ function init(): Promise<void> {
       window.api.settingsGet()
     ])
     paneSelectedIds.value = { ...(settings.paneSelectedTaskIds ?? {}) }
+    paneDirectorySelectedIds.value = { ...(settings.paneDirectorySelectedTaskIds ?? {}) }
     allTasks.value = tasks
     window.api.onTaskStatus(upsertTask)
     window.api.onTaskRemoved(({ id }) => {
@@ -77,12 +102,27 @@ function selectTask(id: string | null): void {
   selectedId.value = id
 }
 
-function selectPaneTask(paneId: string, id: string | null): void {
+function selectPaneTask(paneId: string, cwd: string, id: string | null): void {
   const next = { ...paneSelectedIds.value }
   if (id) next[paneId] = id
   else delete next[paneId]
   paneSelectedIds.value = next
-  void window.api.settingsSetNow({ paneSelectedTaskIds: next })
+
+  const directory = taskDirectoryKey(cwd)
+  const paneSelections = { ...(paneDirectorySelectedIds.value[paneId] ?? {}) }
+  if (directory) {
+    if (id) paneSelections[directory] = id
+    else delete paneSelections[directory]
+  }
+  const nextDirectorySelections = { ...paneDirectorySelectedIds.value }
+  if (Object.keys(paneSelections).length) nextDirectorySelections[paneId] = paneSelections
+  else delete nextDirectorySelections[paneId]
+  paneDirectorySelectedIds.value = nextDirectorySelections
+
+  void window.api.settingsSetNow({
+    paneSelectedTaskIds: next,
+    paneDirectorySelectedTaskIds: nextDirectorySelections
+  })
   // 工具栏选中的任务同时成为任务抽屉当前项，但不会影响其他 pane 的工具栏。
   selectedId.value = id
 }
@@ -100,10 +140,12 @@ export interface UseTasksReturn {
   selectedTask: ComputedRef<TaskMeta | null>
   /** 各 pane 独立的最后选择，key 为 paneId。 */
   paneSelectedIds: Ref<Record<string, string>>
+  /** 各 pane 在不同工作目录下的最后选择。 */
+  paneDirectorySelectedIds: Ref<Record<string, Record<string, string>>>
   /** 更新全局选中。可在任何组件内调用。 */
   selectTask: (id: string | null) => void
   /** 更新并持久化某个 pane 的任务选择。 */
-  selectPaneTask: (paneId: string, id: string | null) => void
+  selectPaneTask: (paneId: string, cwd: string, id: string | null) => void
   /**
    * 首次 subscribe + fetch 完成的 promise。需要"已经拿到列表"再 select 的场景
    * (如 TasksDrawer 想自动定位某个 task)await 它。日常列表展示可以不 await,
@@ -118,6 +160,7 @@ export function useTasks(): UseTasksReturn {
     selectedId,
     selectedTask,
     paneSelectedIds,
+    paneDirectorySelectedIds,
     selectTask,
     selectPaneTask,
     ready: init()

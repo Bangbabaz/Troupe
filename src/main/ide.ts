@@ -1,11 +1,12 @@
 import { spawn } from 'child_process'
-import { existsSync, readFileSync } from 'fs'
+import { existsSync } from 'fs'
 import { join, dirname, basename } from 'path'
 import { app, shell } from 'electron'
 import { is } from '@electron-toolkit/utils'
 import { updateSettings } from './settings'
 import { findExecutable, getShellRuntime, shellConsoleArgs } from './shell-runtime'
 import { buildWindowsBatchLaunch } from './windows-batch-launch'
+import { executableFromWindowsBatch } from './windows-batch-executable'
 import createIdeDetectionWorker from './ide-detection.worker?nodeWorker'
 import type {
   IdeDetectionCandidate,
@@ -302,31 +303,6 @@ function exeForShim(shim: string): string | null {
 }
 
 /**
- * Parse a `.cmd` / `.bat` shim to extract the actual .exe path it delegates to.
- * Handles two common patterns:
- *   - JetBrains Toolbox: `set "IDE_DIR=C:\..."` + `"%IDE_DIR%\bin\<stem>64.exe"`
- *   - Generic: any `"...\xxx.exe"` reference that exists on disk
- */
-function exeFromBatchFile(shim: string): string | null {
-  try {
-    const content = readFileSync(shim, 'utf-8')
-    // JetBrains Toolbox: `set "IDE_DIR=<path>"`
-    const dirMatch = content.match(/set\s+"IDE_DIR=([^"\r\n]+)"/i)
-    if (dirMatch) {
-      const stem = basename(shim).replace(/\.(cmd|bat)$/i, '')
-      const exe = join(dirMatch[1], 'bin', `${stem}64.exe`)
-      if (existsSync(exe)) return exe
-    }
-    // Generic: any quoted .exe path that exists
-    const exeMatch = content.match(/"([^"\r\n]+\.exe)"/i)
-    if (exeMatch && existsSync(exeMatch[1])) return exeMatch[1]
-    return null
-  } catch {
-    return null
-  }
-}
-
-/**
  * Recover an official batch launcher from a cached direct .exe path. Older
  * cache entries may contain Code.exe because detection used to replace the
  * working bin/code.cmd shim with the GUI executable.
@@ -389,7 +365,7 @@ async function extractIcon(command: string, id?: string): Promise<string | undef
   if (isMac) return undefined
 
   try {
-    const target = isWindows ? exeForShim(command) || exeFromBatchFile(command) : command
+    const target = isWindows ? executableFromWindowsBatch(command) || exeForShim(command) : command
     if (!target || !existsSync(target)) return undefined
     // 'large' gives us 48×48 on Windows — better at 2× DPI than the 32×32
     // 'normal' size used previously. The resize below caps payload size.
@@ -489,17 +465,17 @@ export async function detectIdes(force = false): Promise<IdeInfo[]> {
 
 async function runDetect(): Promise<IdeInfo[]> {
   const found = withSystemEntries(await scanIdesInWorker())
-  const prevIcons = new Map((cache || []).map((i) => [i.id, i.iconDataUrl]))
   if (!isMac) {
     // Windows/Linux icon extraction relies on Electron's nativeImage-backed
     // app.getFileIcon API, which is main-process-only. The expensive discovery
     // and all macOS icon conversion stay inside the worker.
     await Promise.all(
       found.map(async (ide) => {
-        ide.iconDataUrl = (await extractIcon(ide.command, ide.id)) || prevIcons.get(ide.id)
+        ide.iconDataUrl = await extractIcon(ide.command, ide.id)
       })
     )
   } else {
+    const prevIcons = new Map((cache || []).map((i) => [i.id, i.iconDataUrl]))
     for (const ide of found) ide.iconDataUrl ||= prevIcons.get(ide.id)
   }
 

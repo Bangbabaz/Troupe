@@ -10,6 +10,7 @@ import {
   session,
   safeStorage
 } from 'electron'
+import type { Rectangle } from 'electron'
 import { join } from 'path'
 import { tmpdir } from 'os'
 import { randomBytes } from 'crypto'
@@ -124,6 +125,48 @@ app.commandLine.appendSwitch('disable-background-timer-throttling')
 let mainWindow: BrowserWindow | null = null
 const MIN_WINDOW_WIDTH = 800
 const MIN_WINDOW_HEIGHT = 600
+const BROWSER_OPEN_GUARD_MS = 1200
+
+interface BrowserOpenGuard {
+  bounds: Rectangle
+  expiresAt: number
+  token: symbol
+  timeout: ReturnType<typeof setTimeout>
+}
+
+const browserOpenGuards = new WeakMap<BrowserWindow, BrowserOpenGuard>()
+
+function clearBrowserOpenGuard(win: BrowserWindow): void {
+  const guard = browserOpenGuards.get(win)
+  if (!guard) return
+  clearTimeout(guard.timeout)
+  browserOpenGuards.delete(win)
+}
+
+function getActiveBrowserOpenGuard(win: BrowserWindow): BrowserOpenGuard | null {
+  const guard = browserOpenGuards.get(win)
+  if (!guard) return null
+  if (Date.now() < guard.expiresAt) return guard
+  clearBrowserOpenGuard(win)
+  return null
+}
+
+function armBrowserOpenGuard(win: BrowserWindow): void {
+  if (process.platform !== 'darwin' || win.isDestroyed() || !win.isNormal()) return
+
+  clearBrowserOpenGuard(win)
+  const token = Symbol('browser-open-guard')
+  const timeout = setTimeout(() => {
+    if (browserOpenGuards.get(win)?.token === token) browserOpenGuards.delete(win)
+  }, BROWSER_OPEN_GUARD_MS)
+  const guard: BrowserOpenGuard = {
+    bounds: win.getBounds(),
+    expiresAt: Date.now() + BROWSER_OPEN_GUARD_MS,
+    token,
+    timeout
+  }
+  browserOpenGuards.set(win, guard)
+}
 
 function visibleApprovalText(value: string): string {
   return Array.from(value, (char) => {
@@ -215,9 +258,23 @@ function createWindow(): void {
     const b = win.getBounds()
     updateSettings({ windowBounds: b })
   }
+  win.on('will-resize', (event) => {
+    if (getActiveBrowserOpenGuard(win)) event.preventDefault()
+  })
+  win.on('will-move', (event) => {
+    if (getActiveBrowserOpenGuard(win)) event.preventDefault()
+  })
   win.on('resize', persistBounds)
   win.on('move', persistBounds)
   win.on('maximize', () => {
+    const guard = getActiveBrowserOpenGuard(win)
+    if (guard) {
+      const { bounds } = guard
+      clearBrowserOpenGuard(win)
+      win.unmaximize()
+      win.setBounds(bounds)
+      return
+    }
     updateSettings({ windowMaximized: true })
     win.webContents.send('window-state-changed', true)
   })
@@ -508,6 +565,7 @@ app.whenReady().then(() => {
   ipcMain.on('win-minimize', () => mainWindow?.minimize())
   ipcMain.on('win-maximize', () => {
     if (!mainWindow) return
+    clearBrowserOpenGuard(mainWindow)
     mainWindow.isMaximized() ? mainWindow.unmaximize() : mainWindow.maximize()
   })
   ipcMain.on('win-close', () => mainWindow?.close())
@@ -718,6 +776,10 @@ app.whenReady().then(() => {
   })
 
   // Browser
+  ipcMain.on('browser-will-open', (event) => {
+    const win = BrowserWindow.fromWebContents(event.sender)
+    if (win && win === mainWindow) armBrowserOpenGuard(win)
+  })
   ipcMain.handle('browser-register', (_event, paneId: string, webContentsId: number) => {
     try {
       registerBrowser(paneId, webContentsId)

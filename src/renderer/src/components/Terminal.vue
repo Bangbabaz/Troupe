@@ -24,7 +24,9 @@ import {
   SplitSquareVertical,
   X,
   Settings as SettingsIcon,
-  FolderOpen
+  FolderOpen,
+  Server,
+  ChevronRight
 } from 'lucide-vue-next'
 import PaneToolbar from './PaneToolbar.vue'
 import BrowserDrawer from './BrowserDrawer.vue'
@@ -33,7 +35,7 @@ import AgentSessionsDrawer from './AgentSessionsDrawer.vue'
 import { useTheme } from '../composables/useTheme'
 import { DEFAULT_SHORTCUTS, shortcutDisplayParts, shortcutMatches } from '../shortcuts'
 import type { ShortcutAction } from '../shortcuts'
-import type { AgentSessionInfo } from '@shared/types'
+import type { AgentSessionInfo, SshProfile } from '@shared/types'
 import '@xterm/xterm/css/xterm.css'
 
 const { xtermTheme } = useTheme()
@@ -51,6 +53,7 @@ const props = withDefaults(
     fontSize?: number
     scrollback?: number
     shortcuts?: Record<string, string>
+    sshProfiles?: SshProfile[]
     /**
      * 父级 layout 中本 pane 是否为 active。activeId 变化(Alt+方向键切焦、点击其它
      * pane、新建 worktree 自动 active 新 pane)会让这个 prop 翻转 —— 翻 true 时
@@ -67,6 +70,7 @@ const props = withDefaults(
     fontSize: DEFAULT_FONT_SIZE,
     scrollback: DEFAULT_SCROLLBACK,
     shortcuts: () => ({}),
+    sshProfiles: () => [],
     isActive: false
   }
 )
@@ -88,6 +92,8 @@ const emit = defineEmits<{
   (e: 'openSettings'): void
   (e: 'manageTasks', cwd?: string, newDraft?: boolean): void
   (e: 'openAgentSession', session: AgentSessionInfo): void
+  (e: 'connectSsh', paneId: string, profileId: string): void
+  (e: 'manageSsh', paneId: string): void
 }>()
 
 const terminalRef = ref<HTMLDivElement>()
@@ -104,9 +110,19 @@ const browserOpen = ref(false)
 const browserWidth = ref(DEFAULT_BROWSER_WIDTH)
 const agentSessionsOpen = ref(false)
 
-const toggleBrowser = (): void => {
+const openBrowser = (): void => {
+  if (browserOpen.value) return
+  window.api.browserWillOpen()
   browserMounted.value = true
-  browserOpen.value = !browserOpen.value
+  browserOpen.value = true
+}
+
+const toggleBrowser = (): void => {
+  if (browserOpen.value) {
+    browserOpen.value = false
+    return
+  }
+  openBrowser()
 }
 
 const closeBrowser = (): void => {
@@ -125,6 +141,7 @@ const contextMenuY = ref(0)
 // backdrop 上重新右键时菜单已显示,nextTick 同帧重新 clamp 即可,无 hide。
 const contextMenuRef = ref<HTMLDivElement>()
 const contextMenuReady = ref(false)
+const contextSubmenuSide = ref<'left' | 'right'>('right')
 // Captured when the menu opens so "复制" can be enabled/disabled correctly
 // (the selection is cleared the moment the menu steals focus otherwise).
 const menuHasSelection = ref(false)
@@ -532,14 +549,18 @@ terminal.onData((data) => window.api.ptyWrite(props.paneId, data))
 // 体验是部分项不可点。clamp 完保留 4px 安全 gutter,且永远不会落到负值左上角
 // (极小视口 / 巨大菜单时取 margin)。要求菜单已经在 DOM 中(测量需要 rect.width)。
 const MENU_MARGIN = 4
+const SUBMENU_WIDTH = 260
 function clampContextMenu(): void {
   const el = contextMenuRef.value
   if (!el) return
   const rect = el.getBoundingClientRect()
   const maxX = window.innerWidth - rect.width - MENU_MARGIN
   const maxY = window.innerHeight - rect.height - MENU_MARGIN
-  contextMenuX.value = Math.max(MENU_MARGIN, Math.min(contextMenuX.value, maxX))
+  const clampedX = Math.max(MENU_MARGIN, Math.min(contextMenuX.value, maxX))
+  contextMenuX.value = clampedX
   contextMenuY.value = Math.max(MENU_MARGIN, Math.min(contextMenuY.value, maxY))
+  contextSubmenuSide.value =
+    clampedX + rect.width + SUBMENU_WIDTH <= window.innerWidth - MENU_MARGIN ? 'right' : 'left'
 }
 
 const onContextMenu = async (e: MouseEvent): Promise<void> => {
@@ -645,6 +666,19 @@ const onClosePane = (): void => {
 const onOpenSettings = (): void => {
   contextMenuVisible.value = false
   emit('openSettings')
+}
+
+const sshProfileLabel = (profile: SshProfile): string =>
+  profile.name || `${profile.username}@${profile.host}`
+
+const onConnectSsh = (profileId: string): void => {
+  contextMenuVisible.value = false
+  emit('connectSsh', props.paneId, profileId)
+}
+
+const onManageSsh = (): void => {
+  contextMenuVisible.value = false
+  emit('manageSsh', props.paneId)
 }
 
 const closeContextMenu = (): void => {
@@ -874,8 +908,7 @@ onMounted(async () => {
   // main process 推送此事件,面板自动打开浏览器抽屉。
   unsubscribeBrowserActivate = window.api.onBrowserActivate((requestedPaneId) => {
     if (requestedPaneId === props.paneId) {
-      browserMounted.value = true
-      browserOpen.value = true
+      openBrowser()
     }
   })
 })
@@ -1028,6 +1061,36 @@ onUnmounted(() => {
           </div>
 
           <div class="cm-divider" />
+
+          <div
+            class="cm-item has-submenu"
+            :class="{ 'submenu-left': contextSubmenuSide === 'left' }"
+          >
+            <Server :size="14" class="cm-icon" />
+            <span class="cm-label">SSH 连接</span>
+            <ChevronRight :size="13" class="cm-submenu-chevron" />
+            <div class="cm-submenu" :class="contextSubmenuSide" @click.stop>
+              <div
+                v-for="profile in props.sshProfiles"
+                :key="profile.id"
+                class="cm-item"
+                :title="`${profile.username}@${profile.host}:${profile.port}`"
+                @click="onConnectSsh(profile.id)"
+              >
+                <Server :size="14" class="cm-icon" />
+                <span class="cm-label cm-server-label">{{ sshProfileLabel(profile) }}</span>
+              </div>
+              <div v-if="!props.sshProfiles.length" class="cm-item disabled">
+                <Server :size="14" class="cm-icon" />
+                <span class="cm-label">暂无保存的连接</span>
+              </div>
+              <div class="cm-divider" />
+              <div class="cm-item" @click="onManageSsh">
+                <SettingsIcon :size="14" class="cm-icon" />
+                <span class="cm-label">管理连接…</span>
+              </div>
+            </div>
+          </div>
 
           <div class="cm-item" @click="onOpenDirectory">
             <FolderOpen :size="14" class="cm-icon" />
