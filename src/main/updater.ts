@@ -7,6 +7,10 @@ let mainWindow: BrowserWindow | null = null
 let initialized = false
 let updateBusy = false
 let currentStatus: UpdateStatus | null = null
+let initialCheckTimer: ReturnType<typeof setTimeout> | null = null
+let periodicCheckTimer: ReturnType<typeof setInterval> | null = null
+const INITIAL_CHECK_DELAY_MS = 5000
+const PERIODIC_CHECK_INTERVAL_MS = 4 * 60 * 60 * 1000
 
 function sendUpdateStatus(status: UpdateStatus): void {
   currentStatus = status
@@ -34,6 +38,28 @@ async function runUpdateCheck(): Promise<void> {
       message: err instanceof Error ? err.message : String(err)
     })
   }
+}
+
+function clearAutoUpdateSchedule(): void {
+  if (initialCheckTimer) {
+    clearTimeout(initialCheckTimer)
+    initialCheckTimer = null
+  }
+  if (periodicCheckTimer) {
+    clearInterval(periodicCheckTimer)
+    periodicCheckTimer = null
+  }
+}
+
+export function setAutoUpdateEnabled(enabled: boolean): void {
+  clearAutoUpdateSchedule()
+  if (!enabled || !app.isPackaged || !initialized) return
+
+  initialCheckTimer = setTimeout(() => {
+    initialCheckTimer = null
+    void runUpdateCheck()
+  }, INITIAL_CHECK_DELAY_MS)
+  periodicCheckTimer = setInterval(() => void runUpdateCheck(), PERIODIC_CHECK_INTERVAL_MS)
 }
 
 export function initAutoUpdater(win: BrowserWindow): void {
@@ -73,11 +99,8 @@ export function initAutoUpdater(win: BrowserWindow): void {
     sendUpdateStatus({ state: 'error', message: err instanceof Error ? err.message : String(err) })
   })
 
-  // 关闭“自动更新”只关闭后台检查；监听器必须保留，关于页的手动检查才可下载并反馈。
-  if (readSettings().autoUpdate === false) return
-
-  setTimeout(() => void runUpdateCheck(), 5000)
-  setInterval(() => void runUpdateCheck(), 4 * 60 * 60 * 1000)
+  // 监听器始终保留，关闭时仅停止后台计划，手动检查仍可下载并反馈。
+  setAutoUpdateEnabled(readSettings().autoUpdate !== false)
 }
 
 export async function checkForUpdates(): Promise<void> {

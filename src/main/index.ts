@@ -77,7 +77,7 @@ import {
   killAllTasks,
   removeTasksByCwd
 } from './tasks'
-import { initAutoUpdater, checkForUpdates, installUpdate } from './updater'
+import { initAutoUpdater, checkForUpdates, installUpdate, setAutoUpdateEnabled } from './updater'
 import { detectIdes, openIde, hydrateIdeCache } from './ide'
 import {
   registerBrowser,
@@ -681,6 +681,9 @@ app.whenReady().then(() => {
     if (Object.prototype.hasOwnProperty.call(sanitized, 'shell')) {
       configureShellRuntime(sanitized.shell)
     }
+    if (Object.prototype.hasOwnProperty.call(sanitized, 'autoUpdate')) {
+      setAutoUpdateEnabled(sanitized.autoUpdate !== false)
+    }
     flushSettings()
   })
   ipcMain.on('settings-set', (event, patch: Partial<Settings>) => {
@@ -689,6 +692,9 @@ app.whenReady().then(() => {
     updateSettings(sanitized)
     if (Object.prototype.hasOwnProperty.call(sanitized, 'shell')) {
       configureShellRuntime(sanitized.shell)
+    }
+    if (Object.prototype.hasOwnProperty.call(sanitized, 'autoUpdate')) {
+      setAutoUpdateEnabled(sanitized.autoUpdate !== false)
     }
   })
 
