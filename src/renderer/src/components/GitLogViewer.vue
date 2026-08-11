@@ -839,6 +839,7 @@ const fileStatusLabel = (s: FilePatch['status']): string =>
 .gl-row {
   @extend %clickable-row;
   display: flex;
+  flex-shrink: 0;
   align-items: stretch;
   gap: 6px;
   width: 100%;

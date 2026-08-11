@@ -41,6 +41,7 @@ import {
 import type {
   AgentSessionInfo,
   QuickCommand,
+  Settings,
   ShellOption,
   SshCommandPermission,
   SshDirectoryPolicy,
@@ -653,6 +654,8 @@ let resizeObserver: ResizeObserver | null = null
 let unsubscribeWinState: (() => void) | null = null
 let unsubscribeTaskStatus: (() => void) | null = null
 let unsubscribeSshPermissions: (() => void) | null = null
+let stopLayoutPersistence: (() => void) | null = null
+let layoutPersistenceReady = false
 
 let saveTimer: ReturnType<typeof setTimeout> | null = null
 const flushSave = (): void => {
@@ -660,6 +663,7 @@ const flushSave = (): void => {
     clearTimeout(saveTimer)
     saveTimer = null
   }
+  if (!layoutPersistenceReady) return
   const saved = serializeLayout()
   if (saved) window.api.settingsSet({ paneLayout: saved })
 }
@@ -671,9 +675,94 @@ const flushSaveOnUnload = (): void => flushSave()
 
 onMounted(async () => {
   initTheme()
-  cwd.value = await window.api.getCwd()
-  isMaximized.value = await window.api.winIsMaximized()
-  appVersion.value = await window.api.getAppVersion()
+
+  // Layout measurement belongs to the critical render path. Set it up before
+  // optional IPC work so a slow shell/profile probe cannot leave only the
+  // title bar visible.
+  if (containerRef.value) {
+    const update = (): void => {
+      const el = containerRef.value
+      if (!el) return
+      containerSize.value = { width: el.clientWidth, height: el.clientHeight }
+    }
+    update()
+    resizeObserver = new ResizeObserver(update)
+    resizeObserver.observe(containerRef.value)
+  }
+
+  const [cwdResult, settingsResult] = await Promise.allSettled([
+    window.api.getCwd(),
+    window.api.settingsGet()
+  ])
+  cwd.value = cwdResult.status === 'fulfilled' ? cwdResult.value : ''
+  if (cwdResult.status === 'rejected') {
+    console.error('[startup] cwd load failed:', cwdResult.reason)
+  }
+
+  const settings: Settings | null =
+    settingsResult.status === 'fulfilled' ? settingsResult.value : null
+  if (settingsResult.status === 'rejected') {
+    console.error('[startup] settings load failed:', settingsResult.reason)
+  }
+
+  if (settings) {
+    if (typeof settings.fontSize === 'number') appFontSize.value = settings.fontSize
+    if (typeof settings.scrollback === 'number') appScrollback.value = settings.scrollback
+    if (typeof settings.autoOpenTasksOnRun === 'boolean')
+      autoOpenTasksOnRun.value = settings.autoOpenTasksOnRun
+    if (typeof settings.unifiedAgentSessions === 'boolean')
+      unifiedAgentSessions.value = settings.unifiedAgentSessions
+    if (typeof settings.autoUpdate === 'boolean') autoUpdate.value = settings.autoUpdate
+    if (typeof settings.tasksDrawerWidth === 'number')
+      tasksDrawerWidth.value = clampDrawerWidth(settings.tasksDrawerWidth)
+    if (settings.shortcutOverrides && typeof settings.shortcutOverrides === 'object') {
+      shortcutOverrides.value = settings.shortcutOverrides as Record<string, string>
+    }
+    if (Array.isArray(settings.quickCommands)) {
+      quickCommands.value = settings.quickCommands.filter(
+        (item): item is QuickCommand =>
+          !!item &&
+          typeof item.id === 'string' &&
+          typeof item.name === 'string' &&
+          typeof item.command === 'string'
+      )
+    }
+    sshDirectoryPermissions.value = { ...(settings.sshDirectoryPermissions || {}) }
+    sshCommandPermissions.value = Array.isArray(settings.sshCommandPermissions)
+      ? settings.sshCommandPermissions
+      : []
+  }
+
+  restoreFromSaved(settings?.paneLayout)
+  layoutPersistenceReady = settings !== null
+  stopLayoutPersistence = watch([layout, paneCwd, paneTerminalState], scheduleSave, { deep: true })
+
+  const [maximizedResult, versionResult, shellsResult, profilesResult] = await Promise.allSettled([
+    window.api.winIsMaximized(),
+    window.api.getAppVersion(),
+    window.api.shellList(),
+    window.api.sshProfilesList()
+  ])
+  if (maximizedResult.status === 'fulfilled') isMaximized.value = maximizedResult.value
+  else console.error('[startup] window state load failed:', maximizedResult.reason)
+  if (versionResult.status === 'fulfilled') appVersion.value = versionResult.value
+  else console.error('[startup] app version load failed:', versionResult.reason)
+
+  const availableShells = shellsResult.status === 'fulfilled' ? shellsResult.value : []
+  shellOptions.value = availableShells
+  if (shellsResult.status === 'rejected') {
+    console.error('[startup] shell list load failed:', shellsResult.reason)
+  }
+  const configuredShell =
+    typeof settings?.shell === 'string' ? settings.shell.trim() || 'auto' : 'auto'
+  selectedShell.value =
+    configuredShell === 'auto' || availableShells.some((option) => option.value === configuredShell)
+      ? configuredShell
+      : 'auto'
+
+  if (profilesResult.status === 'fulfilled') sshProfiles.value = profilesResult.value
+  else console.error('[startup] SSH profile load failed:', profilesResult.reason)
+
   unsubscribeWinState = window.api.onWindowStateChanged((maximized) => {
     isMaximized.value = maximized
   })
@@ -682,51 +771,9 @@ onMounted(async () => {
     window.electron as unknown as { process?: { versions?: Record<string, string> } }
   ).process?.versions
   if (versions?.electron) electronVersion.value = versions.electron
-
-  const [settings, availableShells] = await Promise.all([
-    window.api.settingsGet(),
-    window.api.shellList()
-  ])
-  shellOptions.value = availableShells
-  const configuredShell =
-    typeof settings.shell === 'string' ? settings.shell.trim() || 'auto' : 'auto'
-  selectedShell.value =
-    configuredShell === 'auto' || availableShells.some((option) => option.value === configuredShell)
-      ? configuredShell
-      : 'auto'
-  if (typeof settings.fontSize === 'number') appFontSize.value = settings.fontSize
-  if (typeof settings.scrollback === 'number') appScrollback.value = settings.scrollback
-  if (typeof settings.autoOpenTasksOnRun === 'boolean')
-    autoOpenTasksOnRun.value = settings.autoOpenTasksOnRun
-  if (typeof settings.unifiedAgentSessions === 'boolean')
-    unifiedAgentSessions.value = settings.unifiedAgentSessions
-  if (typeof settings.autoUpdate === 'boolean') autoUpdate.value = settings.autoUpdate
-  if (typeof settings.tasksDrawerWidth === 'number')
-    tasksDrawerWidth.value = clampDrawerWidth(settings.tasksDrawerWidth)
-  if (settings.shortcutOverrides && typeof settings.shortcutOverrides === 'object') {
-    shortcutOverrides.value = settings.shortcutOverrides as Record<string, string>
-  }
-  if (Array.isArray(settings.quickCommands)) {
-    quickCommands.value = settings.quickCommands.filter(
-      (item): item is QuickCommand =>
-        !!item &&
-        typeof item.id === 'string' &&
-        typeof item.name === 'string' &&
-        typeof item.command === 'string'
-    )
-  }
-  sshDirectoryPermissions.value = { ...(settings.sshDirectoryPermissions || {}) }
-  sshCommandPermissions.value = Array.isArray(settings.sshCommandPermissions)
-    ? settings.sshCommandPermissions
-    : []
-  sshProfiles.value = await window.api.sshProfilesList()
   unsubscribeSshPermissions = window.api.onSshPermissionsUpdated(() => {
     void refreshSshPermissions()
   })
-
-  restoreFromSaved(settings.paneLayout)
-
-  watch([layout, paneCwd, paneTerminalState], scheduleSave, { deep: true })
 
   unsubscribeTaskStatus = window.api.onTaskStatus((meta) => {
     if (meta.status === 'running' && autoOpenTasksOnRun.value) {
@@ -772,21 +819,11 @@ onMounted(async () => {
   })
 
   window.addEventListener('beforeunload', flushSaveOnUnload)
-
-  if (containerRef.value) {
-    const update = (): void => {
-      const el = containerRef.value
-      if (!el) return
-      containerSize.value = { width: el.clientWidth, height: el.clientHeight }
-    }
-    update()
-    resizeObserver = new ResizeObserver(update)
-    resizeObserver.observe(containerRef.value)
-  }
 })
 
 onUnmounted(() => {
   flushSave()
+  stopLayoutPersistence?.()
   unsubscribeWinState?.()
   unsubscribeTaskStatus?.()
   unsubscribeUpdateStatus?.()
