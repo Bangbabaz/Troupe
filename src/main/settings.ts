@@ -1,5 +1,14 @@
 import { app } from 'electron'
-import { cpSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from 'fs'
+import {
+  chmodSync,
+  cpSync,
+  mkdirSync,
+  readFileSync,
+  readdirSync,
+  renameSync,
+  rmSync,
+  writeFileSync
+} from 'fs'
 import { join } from 'path'
 import type { Settings, TaskDef, SavedLayout } from '@shared/types'
 
@@ -91,6 +100,11 @@ export function readSettings(): Settings {
   try {
     const raw = readFileSync(settingsPath(), 'utf8')
     cache = { ...DEFAULTS, ...JSON.parse(raw) }
+    try {
+      chmodSync(settingsPath(), 0o600)
+    } catch {
+      // Windows 使用继承 ACL，chmod 可能不可用。
+    }
   } catch {
     cache = { ...DEFAULTS }
   }
@@ -100,10 +114,15 @@ export function readSettings(): Settings {
 function flush(): void {
   if (!cache) return
   try {
-    mkdirSync(settingsDir(), { recursive: true })
+    mkdirSync(settingsDir(), { recursive: true, mode: 0o700 })
     // 先写临时文件再重命名，避免异常退出留下半截 JSON。
     const tmp = settingsPath() + '.tmp'
-    writeFileSync(tmp, JSON.stringify(cache, null, 2))
+    writeFileSync(tmp, JSON.stringify(cache, null, 2), { mode: 0o600 })
+    try {
+      chmodSync(tmp, 0o600)
+    } catch {
+      // Windows 使用继承 ACL，chmod 可能不可用。
+    }
     renameSync(tmp, settingsPath())
   } catch {
     // 磁盘已满或无写入权限时保留内存状态，本次运行仍可继续。

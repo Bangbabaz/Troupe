@@ -11,7 +11,7 @@ import {
   safeStorage,
   webContents
 } from 'electron'
-import type { IpcMainInvokeEvent, Rectangle, WebContents } from 'electron'
+import type { Rectangle, WebContents } from 'electron'
 import { join } from 'path'
 import { pathToFileURL } from 'url'
 import { tmpdir } from 'os'
@@ -229,7 +229,7 @@ function isTrustedMainRenderer(contents: WebContents): boolean {
   )
 }
 
-function assertTrustedIpcSender(event: IpcMainInvokeEvent): void {
+function assertTrustedIpcSender(event: { sender: WebContents }): void {
   if (!isTrustedMainRenderer(event.sender)) throw new Error('拒绝来自非主窗口的 IPC 请求')
 }
 
@@ -650,22 +650,6 @@ app.whenReady().then(() => {
   ipcMain.handle('win-is-maximized', () => mainWindow?.isMaximized() ?? false)
 
   // Settings IPC
-  ipcMain.handle('settings-get', () => readSettings())
-  ipcMain.handle('shell-list', () => listAvailableShells())
-  ipcMain.handle('settings-set-now', (_event, patch: Partial<Settings>) => {
-    updateSettings(patch)
-    if (Object.prototype.hasOwnProperty.call(patch, 'shell')) {
-      configureShellRuntime(patch.shell)
-    }
-    flushSettings()
-  })
-  ipcMain.on('settings-set', (_event, patch: Partial<Settings>) => {
-    updateSettings(patch)
-    if (Object.prototype.hasOwnProperty.call(patch, 'shell')) {
-      configureShellRuntime(patch.shell)
-    }
-  })
-
   const sanitizeSshProfile = (profile: SshProfile): SshProfile => ({
     id: profile.id,
     name: profile.name,
@@ -675,13 +659,74 @@ app.whenReady().then(() => {
     remoteCwd: profile.remoteCwd,
     hasPassword: !!profile.passwordSecret
   })
+  const publicSettings = (): Settings => ({
+    ...readSettings(),
+    sshProfiles: (readSettings().sshProfiles || []).map(sanitizeSshProfile)
+  })
+  const withoutSshProfiles = (patch: Partial<Settings>): Partial<Settings> => {
+    const sanitized = { ...patch }
+    delete sanitized.sshProfiles
+    return sanitized
+  }
+
+  ipcMain.handle('settings-get', (event) => {
+    assertTrustedIpcSender(event)
+    return publicSettings()
+  })
+  ipcMain.handle('shell-list', () => listAvailableShells())
+  ipcMain.handle('settings-set-now', (event, patch: Partial<Settings>) => {
+    assertTrustedIpcSender(event)
+    const sanitized = withoutSshProfiles(patch)
+    updateSettings(sanitized)
+    if (Object.prototype.hasOwnProperty.call(sanitized, 'shell')) {
+      configureShellRuntime(sanitized.shell)
+    }
+    flushSettings()
+  })
+  ipcMain.on('settings-set', (event, patch: Partial<Settings>) => {
+    if (!isTrustedMainRenderer(event.sender)) return
+    const sanitized = withoutSshProfiles(patch)
+    updateSettings(sanitized)
+    if (Object.prototype.hasOwnProperty.call(sanitized, 'shell')) {
+      configureShellRuntime(sanitized.shell)
+    }
+  })
 
   const encryptSshPassword = (password: string): string => {
-    if (safeStorage.isEncryptionAvailable()) {
-      return `safe:${safeStorage.encryptString(password).toString('base64')}`
+    if (!safeStorage.isEncryptionAvailable()) {
+      throw new Error('系统安全存储不可用，无法保存 SSH 密码；请使用密钥或系统凭据存储')
     }
-    return `plain:${Buffer.from(password, 'utf8').toString('base64')}`
+    return `safe:${safeStorage.encryptString(password).toString('base64')}`
   }
+
+  const migrateLegacySshPasswords = (): void => {
+    const profiles = readSettings().sshProfiles || []
+    const withoutPasswordSecret = (profile: SshProfile): SshProfile => {
+      const sanitized = { ...profile }
+      delete sanitized.passwordSecret
+      return sanitized
+    }
+    let changed = false
+    const migrated = profiles.map((profile) => {
+      if (!profile.passwordSecret?.startsWith('plain:')) return profile
+      changed = true
+      if (!safeStorage.isEncryptionAvailable()) {
+        return withoutPasswordSecret(profile)
+      }
+      try {
+        const password = Buffer.from(profile.passwordSecret.slice(6), 'base64').toString('utf8')
+        return { ...profile, passwordSecret: encryptSshPassword(password) }
+      } catch {
+        return withoutPasswordSecret(profile)
+      }
+    })
+    if (!changed) return
+    updateSettings({ sshProfiles: migrated })
+    flushSettings()
+    console.warn('[ssh] 已迁移或清除旧版明文 SSH 密码')
+  }
+
+  migrateLegacySshPasswords()
 
   const normalizeSshProfile = (profile: SshProfile, existing?: SshProfile): SshProfile => {
     const password = typeof profile.password === 'string' ? profile.password : ''

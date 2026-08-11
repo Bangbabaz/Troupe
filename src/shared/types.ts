@@ -272,7 +272,7 @@ export interface Settings {
   autoUpdate?: boolean
   /** 点击后向当前激活终端执行或填入的快捷指令。 */
   quickCommands?: QuickCommand[]
-  /** SSH 远程终端连接配置。密码/私钥内容不落盘,只保存可复用的连接元信息。 */
+  /** SSH 远程终端连接配置。密码仅在系统安全存储可用时加密保存。 */
   sshProfiles?: SshProfile[]
   /** 已打开本地目录通过 Terminal MCP 操作 SSH 时的默认权限。未配置目录默认每次询问。 */
   sshDirectoryPermissions?: Record<string, SshDirectoryPolicy>

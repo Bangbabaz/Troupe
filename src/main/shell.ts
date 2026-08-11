@@ -151,9 +151,6 @@ function decryptSshPassword(secret: string | undefined): string | undefined {
     if (secret.startsWith('safe:')) {
       return safeStorage.decryptString(Buffer.from(secret.slice(5), 'base64'))
     }
-    if (secret.startsWith('plain:')) {
-      return Buffer.from(secret.slice(6), 'base64').toString('utf8')
-    }
   } catch {
     return undefined
   }
