@@ -63,6 +63,7 @@ interface BrowserSession {
   debuggerAttached: boolean
   networkRequests: NetworkEntry[]
   pendingRequests: Map<string, RequestTrace>
+  eventWaiters: Map<string, Set<(params: unknown, canceled?: boolean) => void>>
   /** 待处理的 JS dialog（alert/confirm/prompt） */
   pendingDialog?: { type: string; message: string; defaultPrompt?: string }
   /** Console 日志环形缓冲（最多 50 条） */
@@ -78,6 +79,7 @@ interface BrowserSession {
 const sessions = new Map<string, BrowserSession>()
 const resourceProxyConfigs = new Map<string, BrowserResourceProxyConfig>()
 const NETWORK_BUFFER_MAX = 200
+const PENDING_REQUESTS_MAX = 1000
 const PROXY_REQUEST_TIMEOUT_MS = 5000
 const JAVASCRIPT_MIME_TYPES = new Set([
   'application/ecmascript',
@@ -100,7 +102,13 @@ const DEFAULT_RESOURCE_PROXY_CONFIG: BrowserResourceProxyConfig = {
 }
 
 // 等待激活: MCP server 请求激活浏览器后,在此等待 registerBrowser 回调
-const pendingActivations = new Map<string, { resolve: () => void; reject: (e: Error) => void }>()
+interface PendingActivation {
+  promise: Promise<void>
+  resolve: () => void
+  reject: (error: Error) => void
+}
+
+const pendingActivations = new Map<string, PendingActivation>()
 
 // ---------------------------------------------------------------------------
 // 辅助
@@ -223,6 +231,7 @@ export function registerBrowser(paneId: string, wcId: number): void {
     debuggerAttached: true,
     networkRequests: [],
     pendingRequests: new Map(),
+    eventWaiters: new Map(),
     consoleLogs: [],
     routeRules: [],
     resourceProxy: cloneResourceProxyConfig(
@@ -259,6 +268,11 @@ export function registerBrowser(paneId: string, wcId: number): void {
   wc.debugger.on('message', (_event, method, params) => {
     if (!sessions.has(paneId)) return
 
+    const eventWaiters = session.eventWaiters.get(method)
+    if (eventWaiters) {
+      for (const notify of [...eventWaiters]) notify(params)
+    }
+
     if (method === 'Network.requestWillBeSent') {
       const p = params as {
         requestId: string
@@ -272,6 +286,10 @@ export function registerBrowser(paneId: string, wcId: number): void {
         type: p.type,
         timestamp: p.timestamp
       })
+      if (session.pendingRequests.size > PENDING_REQUESTS_MAX) {
+        const oldestRequestId = session.pendingRequests.keys().next().value
+        if (oldestRequestId) session.pendingRequests.delete(oldestRequestId)
+      }
     } else if (method === 'Network.responseReceived') {
       const p = params as {
         requestId: string
@@ -299,6 +317,7 @@ export function registerBrowser(paneId: string, wcId: number): void {
         resourceType: p.type
       }
       pushNetworkEntry(session, entry)
+      session.pendingRequests.delete(p.requestId)
     } else if (method === 'Network.loadingFinished') {
       const p = params as { requestId: string; encodedDataLength: number }
       // 更新已存在 entry 的 size(可能 responseReceived 时没拿到)
@@ -310,6 +329,10 @@ export function registerBrowser(paneId: string, wcId: number): void {
           break
         }
       }
+      session.pendingRequests.delete(p.requestId)
+    } else if (method === 'Network.loadingFailed') {
+      const p = params as { requestId: string }
+      session.pendingRequests.delete(p.requestId)
     } else if (method === 'Page.frameNavigated') {
       const p = params as { frame: { id: string; parentId?: string; url: string } }
       if (!p.frame.parentId) {
@@ -392,6 +415,10 @@ export function unregisterBrowser(paneId: string): void {
   }
 
   session.pendingRequests.clear()
+  for (const waiters of session.eventWaiters.values()) {
+    for (const notify of waiters) notify(undefined, true)
+  }
+  session.eventWaiters.clear()
   sessions.delete(paneId)
 }
 
@@ -408,6 +435,50 @@ export async function executeCdp(
   if (!wc) throw new Error(`webContents destroyed for pane: ${paneId}`)
 
   return wc.debugger.sendCommand(method, params)
+}
+
+/** 等待指定 CDP 事件。超时、取消或面板销毁时返回 false。 */
+export function waitForCdpEvent(
+  paneId: string,
+  method: string,
+  predicate: (params: unknown) => boolean | Promise<boolean>,
+  timeoutMs: number,
+  signal?: AbortSignal
+): Promise<boolean> {
+  const session = sessions.get(paneId)
+  if (!session) return Promise.resolve(false)
+
+  return new Promise((resolve) => {
+    let settled = false
+    const waiters =
+      session.eventWaiters.get(method) ?? new Set<(params: unknown, canceled?: boolean) => void>()
+    const finish = (matched: boolean): void => {
+      if (settled) return
+      settled = true
+      clearTimeout(timeout)
+      signal?.removeEventListener('abort', onAbort)
+      waiters.delete(notify)
+      if (waiters.size === 0) session.eventWaiters.delete(method)
+      resolve(matched)
+    }
+    const notify = (params: unknown, canceled = false): void => {
+      if (canceled) {
+        finish(false)
+        return
+      }
+      void Promise.resolve(predicate(params))
+        .then((matched) => {
+          if (matched) finish(true)
+        })
+        .catch(() => {})
+    }
+    const onAbort = (): void => finish(false)
+    const timeout = setTimeout(() => finish(false), timeoutMs)
+    waiters.add(notify)
+    session.eventWaiters.set(method, waiters)
+    if (signal?.aborted) finish(false)
+    else signal?.addEventListener('abort', onAbort, { once: true })
+  })
 }
 
 /** 获取指定 pane 的网络请求缓冲(最近 200 条)。 */
@@ -453,22 +524,32 @@ export function getActiveBrowserPaneIds(): string[] {
  * 用于 agent 首次调用 MCP 工具时自动触发浏览器抽屉打开,webview 挂载后 resolve。
  */
 export function waitForActivation(paneId: string): Promise<void> {
-  return new Promise((resolve, reject) => {
-    const timeout = setTimeout(() => {
-      pendingActivations.delete(paneId)
-      reject(new Error('浏览器激活超时。请手动点击工具栏的 🌐 按钮打开浏览器。'))
-    }, 15000)
-    pendingActivations.set(paneId, {
-      resolve: () => {
-        clearTimeout(timeout)
-        resolve()
-      },
-      reject: (e) => {
-        clearTimeout(timeout)
-        reject(e)
-      }
-    })
+  const existing = pendingActivations.get(paneId)
+  if (existing) return existing.promise
+
+  let resolvePromise!: () => void
+  let rejectPromise!: (error: Error) => void
+  const promise = new Promise<void>((resolve, reject) => {
+    resolvePromise = resolve
+    rejectPromise = reject
   })
+  const timeout = setTimeout(() => {
+    if (pendingActivations.get(paneId)?.promise === promise) pendingActivations.delete(paneId)
+    rejectPromise(new Error('浏览器激活超时。请手动点击工具栏的浏览器按钮打开浏览器。'))
+  }, 15000)
+  const pending: PendingActivation = {
+    promise,
+    resolve: () => {
+      clearTimeout(timeout)
+      resolvePromise()
+    },
+    reject: (error) => {
+      clearTimeout(timeout)
+      rejectPromise(error)
+    }
+  }
+  pendingActivations.set(paneId, pending)
+  return promise
 }
 
 /**

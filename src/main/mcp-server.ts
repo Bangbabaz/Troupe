@@ -762,8 +762,11 @@ async function resolvePaneId(args: Record<string, unknown> | undefined): Promise
   }
 
   const activeIds = getActiveBrowserPaneIds()
-  if (activeIds.length >= 1) {
+  if (activeIds.length === 1) {
     return activeIds[0]
+  }
+  if (activeIds.length > 1) {
+    throw new Error(`检测到多个浏览器面板，请显式传入 paneId：${activeIds.join(', ')}`)
   }
 
   throw new Error(

@@ -3,7 +3,7 @@
 // 将 mcp-server.ts 中分散的 CDP 调用抽出为职责单一的函数，
 // 供 mcp-server 和 browser-actions 共同使用。
 
-import { executeCdp } from './browser'
+import { executeCdp, waitForCdpEvent } from './browser'
 import { ACTIONABILITY_SCRIPT } from './browser-injected'
 
 // ---------------------------------------------------------------------------
@@ -22,21 +22,45 @@ export async function navigate(
     mobile: false
   })
 
-  const navResult = (await executeCdp(paneId, 'Page.navigate', { url })) as {
-    frameId?: string
-    loaderId?: string
-    errorText?: string
+  await executeCdp(paneId, 'Page.enable')
+  await executeCdp(paneId, 'Page.setLifecycleEventsEnabled', { enabled: true })
+  const loadController = new AbortController()
+  let resolveLoaderId!: (loaderId: string | undefined) => void
+  const loaderId = new Promise<string | undefined>((resolve) => {
+    resolveLoaderId = resolve
+  })
+  const loadEvent = waitForCdpEvent(
+    paneId,
+    'Page.lifecycleEvent',
+    async (params) => {
+      const expectedLoaderId = await loaderId
+      const event = params as { loaderId?: string; name?: string }
+      return !!expectedLoaderId && event.loaderId === expectedLoaderId && event.name === 'load'
+    },
+    10_000,
+    loadController.signal
+  )
+  let navResult: { frameId?: string; loaderId?: string; errorText?: string }
+  try {
+    navResult = (await executeCdp(paneId, 'Page.navigate', { url })) as typeof navResult
+  } catch (error) {
+    resolveLoaderId(undefined)
+    loadController.abort()
+    await loadEvent
+    throw error
   }
+  resolveLoaderId(navResult.loaderId)
 
   if (navResult?.errorText) {
+    loadController.abort()
+    await loadEvent
     throw new Error(`导航失败: ${navResult.errorText}`)
   }
 
-  // 等待 load 事件（最多 10s，超时不报错）
-  try {
-    await executeCdp(paneId, 'Page.loadEventFired')
-  } catch {
-    // 忽略 —— 页面可能加载过快或 protocol 不支持
+  if (navResult.loaderId) await loadEvent
+  else {
+    loadController.abort()
+    await loadEvent
   }
 
   const title = await getPageTitle(paneId)
@@ -133,7 +157,10 @@ export async function setWebStorage(
   value: string
 ): Promise<void> {
   const store = storage === 'local' ? 'localStorage' : 'sessionStorage'
-  await evaluate(paneId, `window.${store}.setItem(${JSON.stringify(key)}, ${JSON.stringify(value)})`)
+  await evaluate(
+    paneId,
+    `window.${store}.setItem(${JSON.stringify(key)}, ${JSON.stringify(value)})`
+  )
 }
 
 export async function removeWebStorage(
@@ -247,9 +274,7 @@ export async function evaluate<T>(paneId: string, expression: string): Promise<T
 
   if (result?.exceptionDetails) {
     const msg =
-      result.exceptionDetails.exception?.description ??
-      result.exceptionDetails.text ??
-      'Unknown'
+      result.exceptionDetails.exception?.description ?? result.exceptionDetails.text ?? 'Unknown'
     throw new Error(`执行脚本出错: ${msg}`)
   }
 
