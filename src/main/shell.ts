@@ -13,6 +13,7 @@ import { AGENT_MCP_PORT, BROWSER_MCP_PORT, MCP_ACCESS_TOKEN, TERMINAL_MCP_PORT }
 import { killProcessTree } from './proc'
 import { readSettings } from './settings'
 import { getWorkingTreeDiff, getWorkingTreeDiffStats } from './git-working-tree-diff'
+import { selectRemovableWorktreePath } from './git-worktree-path'
 import type {
   BranchInfo,
   WorktreeInfo,
@@ -922,6 +923,8 @@ export async function gitRemoveWorktree(
   force?: boolean
 ): Promise<GitResult> {
   try {
+    const worktrees = await getGitWorktrees(cwd)
+    const validatedPath = selectRemovableWorktreePath(worktrees, worktreePath)
     if (force) {
       // 强制路径:不走 `git worktree remove --force`,直接 fs.rm + prune。
       //
@@ -932,7 +935,7 @@ export async function gitRemoveWorktree(
       //
       // 删完后跑 `git worktree prune` 扫 `.git/worktrees/*` 把孤立条目清掉,
       // 状态等价于 `git worktree remove --force` 成功后的样子。
-      await rm(worktreePath, {
+      await rm(validatedPath, {
         recursive: true,
         force: true,
         maxRetries: 5,
@@ -941,7 +944,7 @@ export async function gitRemoveWorktree(
       await execFileP('git', ['worktree', 'prune'], { ...GIT_OPTS, cwd, timeout: 10_000 })
       return { success: true }
     }
-    await execFileP('git', ['worktree', 'remove', worktreePath], {
+    await execFileP('git', ['worktree', 'remove', validatedPath], {
       ...GIT_OPTS,
       cwd,
       timeout: 15_000
@@ -949,7 +952,7 @@ export async function gitRemoveWorktree(
     // git worktree remove 成功後目錄通常已刪除,但在 Windows 上偶發文件鎖導致
     // 目錄殘留(如防毒/索引器佔用);補一刀 rm 兜底,force 使其對不存在也無害。
     try {
-      await rm(worktreePath, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 })
+      await rm(validatedPath, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 })
     } catch {
       // 目錄已不存在或其他原因無法刪除,不影響主流程
     }
