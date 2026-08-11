@@ -883,7 +883,10 @@ app.whenReady().then(() => {
   // explicitly forces a re-scan (e.g. after the user installed something new).
   ipcMain.handle('ide-list', (_event, force?: boolean) => detectIdes(!!force))
   ipcMain.handle('ide-open', (_event, ideId: string, cwd: string) => openIde(ideId, cwd))
-  ipcMain.handle('open-folder', (_event, cwd: string) => shell.openPath(cwd).then(() => true))
+  ipcMain.handle('open-folder', async (event, cwd: string) => {
+    assertTrustedIpcSender(event)
+    return (await shell.openPath(cwd)) === ''
+  })
 
   ipcMain.handle('update-check', () => checkForUpdates())
   ipcMain.on('update-install', () => installUpdate())
