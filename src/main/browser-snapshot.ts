@@ -107,10 +107,7 @@ export function formatSnapshot(snapshot: SnapshotResult): string {
 // 获取前 N 个元素（用于 navigate 返回值中的 quickSnapshot）
 // ---------------------------------------------------------------------------
 
-export async function getQuickSnapshot(
-  paneId: string,
-  topN: number = 10
-): Promise<SnapshotNode[]> {
+export async function getQuickSnapshot(paneId: string, topN: number = 10): Promise<SnapshotNode[]> {
   const nodes = await evaluate<SnapshotNode[]>(paneId, SNAPSHOT_SCRIPT)
   if (!Array.isArray(nodes)) return []
   return nodes.slice(0, topN)

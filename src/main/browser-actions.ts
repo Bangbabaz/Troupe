@@ -134,7 +134,10 @@ export async function selectOption(
     error?: string
     value?: string
     text?: string
-  }>(paneId, `${SELECT_OPTION_SCRIPT}(${JSON.stringify(selector)}, ${JSON.stringify(value ?? null)}, ${JSON.stringify(label ?? null)})`)
+  }>(
+    paneId,
+    `${SELECT_OPTION_SCRIPT}(${JSON.stringify(selector)}, ${JSON.stringify(value ?? null)}, ${JSON.stringify(label ?? null)})`
+  )
 
   if (nativeResult.success) {
     return { success: true, selected: nativeResult.text ?? nativeResult.value }

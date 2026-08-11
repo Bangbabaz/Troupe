@@ -51,5 +51,12 @@ export default defineConfig(
       ]
     }
   },
+  {
+    files: ['src/renderer/src/components/DiffViewer.vue'],
+    rules: {
+      // Shiki token HTML is generated locally; fallback text is escaped before rendering.
+      'vue/no-v-html': 'off'
+    }
+  },
   eslintConfigPrettier
 )
