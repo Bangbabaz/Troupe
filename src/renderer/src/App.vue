@@ -206,26 +206,26 @@ watch(settingsTab, (tab) => {
 })
 
 // 浏览器自动化、Agent 协作与终端控制使用独立 MCP，避免无关工具进入同一个上下文。
-const BROWSER_MCP_SSE_URL = 'http://127.0.0.1:9876/sse'
-const AGENT_MCP_SSE_URL = 'http://127.0.0.1:9877/sse'
-const TERMINAL_MCP_SSE_URL = 'http://127.0.0.1:9878/sse'
-const BROWSER_MCP_HTTP_URL = 'http://127.0.0.1:9876/mcp'
-const AGENT_MCP_HTTP_URL = 'http://127.0.0.1:9877/mcp'
-const TERMINAL_MCP_HTTP_URL = 'http://127.0.0.1:9878/mcp'
 const MCP_CONFIGS = {
-  browserClaude: `claude mcp add -s user -t sse troupe-browser ${BROWSER_MCP_SSE_URL}`,
-  browserCodex: `codex mcp add troupe-browser --url ${BROWSER_MCP_HTTP_URL}`,
-  agentClaude: `claude mcp add -s user -t sse troupe-agent ${AGENT_MCP_SSE_URL}`,
-  agentCodex: `codex mcp add troupe-agent --url ${AGENT_MCP_HTTP_URL}`,
-  terminalClaude: `claude mcp add -s user -t sse troupe-terminal ${TERMINAL_MCP_SSE_URL}`,
-  terminalCodex: `codex mcp add troupe-terminal --url ${TERMINAL_MCP_HTTP_URL}`
+  browserClaude: async () =>
+    `claude mcp add -s user -t sse troupe-browser ${await window.api.browserGetMcpUrl('sse')}`,
+  browserCodex: async () =>
+    `codex mcp add troupe-browser --url ${await window.api.browserGetMcpUrl('http')}`,
+  agentClaude: async () =>
+    `claude mcp add -s user -t sse troupe-agent ${await window.api.agentGetMcpUrl('sse')}`,
+  agentCodex: async () =>
+    `codex mcp add troupe-agent --url ${await window.api.agentGetMcpUrl('http')}`,
+  terminalClaude: async () =>
+    `claude mcp add -s user -t sse troupe-terminal ${await window.api.terminalGetMcpUrl('sse')}`,
+  terminalCodex: async () =>
+    `codex mcp add troupe-terminal --url ${await window.api.terminalGetMcpUrl('http')}`
 } as const
 type McpCopyTarget = keyof typeof MCP_CONFIGS
 const mcpCopied = ref<McpCopyTarget | null>(null)
 
 async function copyMcpConfig(which: McpCopyTarget): Promise<void> {
-  const content = MCP_CONFIGS[which]
   try {
+    const content = await MCP_CONFIGS[which]()
     await navigator.clipboard.writeText(content)
     mcpCopied.value = which
     setTimeout(() => {

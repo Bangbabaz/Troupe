@@ -132,6 +132,7 @@
     <div class="browser-webview-container">
       <webview
         ref="webviewRef"
+        partition="persist:troupe-browser"
         :src="initialUrl || 'about:blank'"
         :preload="''"
         :nodeintegration="false"

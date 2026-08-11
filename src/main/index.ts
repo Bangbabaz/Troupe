@@ -8,10 +8,12 @@ import {
   screen,
   nativeTheme,
   session,
-  safeStorage
+  safeStorage,
+  webContents
 } from 'electron'
-import type { Rectangle } from 'electron'
+import type { IpcMainInvokeEvent, Rectangle, WebContents } from 'electron'
 import { join } from 'path'
+import { pathToFileURL } from 'url'
 import { tmpdir } from 'os'
 import { randomBytes } from 'crypto'
 import { execFileSync } from 'child_process'
@@ -92,6 +94,7 @@ import {
   getAgentMcpPort,
   getTerminalMcpPort
 } from './mcp-server'
+import { MCP_ACCESS_TOKEN } from './mcp-config'
 import { setSshCommandApprovalHandler, setSshPermissionsChangedHandler } from './ssh-permissions'
 import { listAgentSessions } from './agent-sessions'
 import { configureShellRuntime, listAvailableShells } from './shell-runtime'
@@ -123,9 +126,20 @@ app.commandLine.appendSwitch('disable-renderer-backgrounding')
 app.commandLine.appendSwitch('disable-background-timer-throttling')
 
 let mainWindow: BrowserWindow | null = null
+const hasSingleInstanceLock = app.requestSingleInstanceLock()
+if (!hasSingleInstanceLock) app.quit()
+
 const MIN_WINDOW_WIDTH = 800
 const MIN_WINDOW_HEIGHT = 600
 const BROWSER_OPEN_GUARD_MS = 1200
+const BROWSER_PARTITION = 'persist:troupe-browser'
+
+app.on('second-instance', () => {
+  if (!mainWindow || mainWindow.isDestroyed()) return
+  if (mainWindow.isMinimized()) mainWindow.restore()
+  mainWindow.show()
+  mainWindow.focus()
+})
 
 interface BrowserOpenGuard {
   bounds: Rectangle
@@ -191,6 +205,40 @@ async function openExternalUrl(value: string): Promise<boolean> {
   }
 }
 
+function isTrustedRendererUrl(value: string): boolean {
+  try {
+    const url = new URL(value)
+    if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
+      const devUrl = new URL(process.env['ELECTRON_RENDERER_URL'])
+      return url.origin === devUrl.origin
+    }
+    url.hash = ''
+    url.search = ''
+    return url.toString() === pathToFileURL(join(__dirname, '../renderer/index.html')).toString()
+  } catch {
+    return false
+  }
+}
+
+function isTrustedMainRenderer(contents: WebContents): boolean {
+  return (
+    !!mainWindow &&
+    !mainWindow.isDestroyed() &&
+    contents.id === mainWindow.webContents.id &&
+    isTrustedRendererUrl(contents.getURL())
+  )
+}
+
+function assertTrustedIpcSender(event: IpcMainInvokeEvent): void {
+  if (!isTrustedMainRenderer(event.sender)) throw new Error('拒绝来自非主窗口的 IPC 请求')
+}
+
+function mcpEndpointUrl(port: number, transport: 'sse' | 'http'): string {
+  const url = new URL(`http://127.0.0.1:${port}/${transport === 'sse' ? 'sse' : 'mcp'}`)
+  url.searchParams.set('auth', MCP_ACCESS_TOKEN)
+  return url.toString()
+}
+
 function clampBoundsToDisplay(b: { x?: number; y?: number; width: number; height: number }): {
   x?: number
   y?: number
@@ -226,6 +274,8 @@ function createWindow(): void {
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       sandbox: false,
+      contextIsolation: true,
+      nodeIntegration: false,
       webviewTag: true
     }
   })
@@ -238,6 +288,23 @@ function createWindow(): void {
   win.webContents.setWindowOpenHandler((details) => {
     void openExternalUrl(details.url)
     return { action: 'deny' }
+  })
+
+  win.webContents.on('will-navigate', (event, url) => {
+    if (isTrustedRendererUrl(url)) return
+    event.preventDefault()
+    void openExternalUrl(url)
+  })
+
+  win.webContents.on('will-attach-webview', (event, webPreferences, params) => {
+    if (params.partition !== BROWSER_PARTITION) {
+      event.preventDefault()
+      return
+    }
+    delete webPreferences.preload
+    webPreferences.nodeIntegration = false
+    webPreferences.contextIsolation = true
+    webPreferences.sandbox = true
   })
 
   // PTY cleanup happens via webContents.once('destroyed') inside startPty —
@@ -291,6 +358,7 @@ function createWindow(): void {
 }
 
 app.whenReady().then(() => {
+  if (!hasSingleInstanceLock) return
   configureShellRuntime(readSettings().shell)
   electronApp.setAppUserModelId('com.troupe.app')
 
@@ -304,9 +372,18 @@ app.whenReady().then(() => {
   //     被空 catch 吞掉,表现为 Cmd/Ctrl+V 无反应。
   // 其它权限请求(notifications、geolocation 等)一律拒绝。
   const allowedPermissions = new Set(['clipboard-read', 'clipboard-sanitized-write'])
-  session.defaultSession.setPermissionRequestHandler((_wc, permission, callback) => {
-    callback(allowedPermissions.has(permission))
+  const isAllowedMainPermission = (contents: WebContents | null, permission: string): boolean =>
+    !!contents && isTrustedMainRenderer(contents) && allowedPermissions.has(permission)
+  session.defaultSession.setPermissionRequestHandler((contents, permission, callback) => {
+    callback(isAllowedMainPermission(contents, permission))
   })
+  session.defaultSession.setPermissionCheckHandler((contents, permission) =>
+    isAllowedMainPermission(contents, permission)
+  )
+
+  const browserSession = session.fromPartition(BROWSER_PARTITION)
+  browserSession.setPermissionRequestHandler((_contents, _permission, callback) => callback(false))
+  browserSession.setPermissionCheckHandler(() => false)
 
   // 用上次扫描的 IDE 列表填充 main 的内存 cache,让首个 IdeLauncher mount 时
   // ide-list IPC 直接返回缓存,不必等检测 worker 完整扫描(mac 上 system_profiler
@@ -391,7 +468,8 @@ app.whenReady().then(() => {
   ipcMain.handle('git-worktrees', (_event, cwd: string) => getGitWorktrees(cwd))
   ipcMain.handle(
     'git-worktree-remove',
-    async (_event, cwd: string, worktreePath: string, force?: boolean) => {
+    async (event, cwd: string, worktreePath: string, force?: boolean) => {
+      assertTrustedIpcSender(event)
       const result = await gitRemoveWorktree(cwd, worktreePath, force)
       if (result.success) {
         // 删除工作树后同步清理该目录下的后台任务
@@ -780,8 +858,14 @@ app.whenReady().then(() => {
     const win = BrowserWindow.fromWebContents(event.sender)
     if (win && win === mainWindow) armBrowserOpenGuard(win)
   })
-  ipcMain.handle('browser-register', (_event, paneId: string, webContentsId: number) => {
+  ipcMain.handle('browser-register', (event, paneId: string, webContentsId: number) => {
     try {
+      assertTrustedIpcSender(event)
+      const guest = webContents.fromId(webContentsId)
+      if (!guest || guest.hostWebContents?.id !== event.sender.id) {
+        throw new Error('只能注册当前主窗口持有的 webview')
+      }
+      if (guest.session !== browserSession) throw new Error('浏览器 webview 未使用隔离 Session')
       registerBrowser(paneId, webContentsId)
     } catch (e) {
       console.error('[browser] register failed:', e)
@@ -803,14 +887,17 @@ app.whenReady().then(() => {
   ipcMain.handle('browser-resource-proxy-origin-set', (_event, paneId: string, url: string) => {
     setBrowserResourceProxyOrigin(paneId, url)
   })
-  ipcMain.handle('browser-get-mcp-url', () => {
-    return `http://127.0.0.1:${getBrowserMcpPort()}/sse`
+  ipcMain.handle('browser-get-mcp-url', (event, transport: 'sse' | 'http' = 'sse') => {
+    assertTrustedIpcSender(event)
+    return mcpEndpointUrl(getBrowserMcpPort(), transport)
   })
-  ipcMain.handle('agent-get-mcp-url', () => {
-    return `http://127.0.0.1:${getAgentMcpPort()}/sse`
+  ipcMain.handle('agent-get-mcp-url', (event, transport: 'sse' | 'http' = 'sse') => {
+    assertTrustedIpcSender(event)
+    return mcpEndpointUrl(getAgentMcpPort(), transport)
   })
-  ipcMain.handle('terminal-get-mcp-url', () => {
-    return `http://127.0.0.1:${getTerminalMcpPort()}/sse`
+  ipcMain.handle('terminal-get-mcp-url', (event, transport: 'sse' | 'http' = 'sse') => {
+    assertTrustedIpcSender(event)
+    return mcpEndpointUrl(getTerminalMcpPort(), transport)
   })
 
   createWindow()

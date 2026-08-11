@@ -247,10 +247,12 @@ const api = {
     ) as Promise<BrowserResourceProxyConfig>,
   browserSetResourceProxyOrigin: (paneId: string, url: string) =>
     ipcRenderer.invoke('browser-resource-proxy-origin-set', paneId, url) as Promise<void>,
-  browserGetMcpUrl: (paneId: string) =>
-    ipcRenderer.invoke('browser-get-mcp-url', paneId) as Promise<string>,
-  agentGetMcpUrl: () => ipcRenderer.invoke('agent-get-mcp-url') as Promise<string>,
-  terminalGetMcpUrl: () => ipcRenderer.invoke('terminal-get-mcp-url') as Promise<string>,
+  browserGetMcpUrl: (transport: 'sse' | 'http' = 'sse') =>
+    ipcRenderer.invoke('browser-get-mcp-url', transport) as Promise<string>,
+  agentGetMcpUrl: (transport: 'sse' | 'http' = 'sse') =>
+    ipcRenderer.invoke('agent-get-mcp-url', transport) as Promise<string>,
+  terminalGetMcpUrl: (transport: 'sse' | 'http' = 'sse') =>
+    ipcRenderer.invoke('terminal-get-mcp-url', transport) as Promise<string>,
   onBrowserActivate: (cb: (paneId: string) => void) => {
     const listener = (_e: IpcRendererEvent, p: string): void => cb(p)
     ipcRenderer.on('browser-activate', listener)
