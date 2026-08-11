@@ -110,9 +110,25 @@ const RISK_RULES: RiskRule[] = [
   }
 ]
 
+const READ_ONLY_RULES = [
+  /^(?:[^\s]+\/)?(?:pwd|whoami|id|uname|hostname|date|uptime|printenv|ls|cat|head|tail|wc|stat|file|du|df|readlink|realpath|which|whereis)(?:\s+.*)?$/i,
+  /^(?:[^\s]+\/)?git(?:\s+-C\s+\S+)?\s+(?:status|log|diff|show|rev-parse|rev-list|ls-files|ls-tree|cat-file|describe)(?:\s+.*)?$/i,
+  /^(?:[^\s]+\/)?systemctl(?:\s+--[\w=-]+)*\s+(?:status|is-active|is-enabled|show|list-units|list-unit-files)(?:\s+.*)?$/i,
+  /^(?:[^\s]+\/)?service\s+\S+\s+status(?:\s+.*)?$/i,
+  /^(?:[^\s]+\/)?(?:docker|podman)\s+(?:ps|images|inspect|logs|info|version)(?:\s+.*)?$/i,
+  /^(?:[^\s]+\/)?kubectl(?:\s+--[\w=-]+)*\s+(?:get|describe|logs|top|api-resources|cluster-info|version)(?:\s+.*)?$/i,
+  /^(?:[^\s]+\/)?(?:echo|printf|true|false)(?:\s+.*)?$/i
+] as const
+
 function hasFileRedirection(command: string): boolean {
   const withoutDevNull = command.replace(/(?:\d*>{1,2}|&>)\s*\/dev\/null\b/gi, '')
   return /(?:^|[^>])>{1,2}(?![>&])/.test(withoutDevNull)
+}
+
+function isKnownReadOnlyCommand(command: string): boolean {
+  const withoutDevNull = command.replace(/(?:\d*>{1,2}|&>)\s*\/dev\/null\b/gi, '').trim()
+  if (!withoutDevNull || /[;&|()<>`$\r\n]/.test(withoutDevNull)) return false
+  return READ_ONLY_RULES.some((rule) => rule.test(withoutDevNull))
 }
 
 export function assessSshCommandRisk(command: string): SshCommandRisk {
@@ -122,5 +138,6 @@ export function assessSshCommandRisk(command: string): SshCommandRisk {
   if (hasFileRedirection(normalized)) {
     return { dangerous: true, reason: '命令会写入或覆盖远程文件' }
   }
-  return { dangerous: false }
+  if (isKnownReadOnlyCommand(normalized)) return { dangerous: false }
+  return { dangerous: true, reason: '命令不在已知只读白名单中，需要逐次确认' }
 }

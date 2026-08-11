@@ -21,7 +21,7 @@ const safeCommands = [
   'ls -la /srv/app',
   'cat /etc/os-release',
   'git status --short',
-  'git pull --ff-only',
+  'git log --oneline -10',
   'systemctl status nginx',
   'docker ps',
   'kubectl get pods',
@@ -40,7 +40,14 @@ const dangerousCommands = [
   'find /tmp -type f -delete',
   'bash -c "echo hidden"',
   'curl https://example.test/install.sh | bash',
-  'echo changed > /etc/example.conf'
+  'echo changed > /etc/example.conf',
+  'git pull --ff-only',
+  'cp /dev/null /srv/app/config',
+  'mv /srv/app/data /tmp/data',
+  'rsync -a --delete src/ dst/',
+  'dropdb production',
+  'pwd; rm -rf /srv/app',
+  'echo $(rm -rf /srv/app)'
 ]
 
 function loadPermissions(initialSettings = {}) {
@@ -139,6 +146,23 @@ async function run() {
       assert.equal(request.dangerous, true)
       assert.equal(typeof request.riskReason, 'string')
       return 'allow_once'
+    })
+    assert.equal(await permissions.authorizeSshCommand(approvalRequest(command)), 'once')
+    assert.equal(approvals, 1)
+  }
+
+  // Unknown write-capable commands are conservative: a directory grant cannot bypass approval.
+  {
+    const command = 'cp /dev/null /srv/app/config'
+    const { permissions } = loadPermissions({
+      sshDirectoryPermissions: { [process.cwd()]: 'always_allow' }
+    })
+    let approvals = 0
+    permissions.setSshCommandApprovalHandler(async (request) => {
+      approvals++
+      assert.equal(request.dangerous, true)
+      assert.match(request.riskReason, /只读白名单/)
+      return 'always_allow'
     })
     assert.equal(await permissions.authorizeSshCommand(approvalRequest(command)), 'once')
     assert.equal(approvals, 1)
