@@ -45,6 +45,8 @@ async function run() {
     git(existing, 'add', 'staged.txt')
     fs.writeFileSync(path.join(existing, 'unstaged.txt'), 'before\nafter\n')
     fs.writeFileSync(path.join(existing, 'untracked.txt'), 'new\nfile\n')
+    fs.writeFileSync(path.join(existing, 'space name.txt'), 'space\n')
+    fs.writeFileSync(path.join(existing, '中文.txt'), 'unicode\n')
     fs.writeFileSync(path.join(existing, 'empty.txt'), '')
     fs.writeFileSync(path.join(existing, 'binary.bin'), Buffer.from([0, 1, 2, 3]))
 
@@ -58,9 +60,11 @@ async function run() {
     assert.match(payload.diff, /a\/staged\.txt b\/staged\.txt/)
     assert.match(payload.diff, /a\/unstaged\.txt b\/unstaged\.txt/)
     assert.match(payload.diff, /a\/untracked\.txt b\/untracked\.txt/)
+    assert.match(payload.diff, /a\/space name\.txt b\/space name\.txt/)
+    assert.match(payload.diff, /a\/中文\.txt b\/中文\.txt/)
     assert.match(payload.diff, /a\/empty\.txt b\/empty\.txt/)
     assert.match(payload.diff, /a\/binary\.bin b\/binary\.bin/)
-    assert.deepEqual(stats, { files: 5, added: 4, deleted: 1 })
+    assert.deepEqual(stats, { files: 7, added: 6, deleted: 1 })
     assert.equal(git(existing, 'status', '--porcelain=v1'), statusBefore)
 
     const unborn = path.join(root, 'unborn')

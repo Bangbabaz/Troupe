@@ -108,14 +108,22 @@ async function runWorkingTreeDiff(
 
   try {
     try {
-      const { stdout } = await execFileP('git', ['diff', ...context.baseArgs, ...extraArgs], opts)
+      const { stdout } = await execFileP(
+        'git',
+        ['-c', 'core.quotePath=false', 'diff', ...context.baseArgs, ...extraArgs],
+        opts
+      )
       return stdout
     } catch (error) {
       if (isMaxBufferError(error) || !context.fallbackWithoutHead) throw error
 
       // No temporary index means there were no untracked files. In an unborn
       // repository HEAD is invalid, so compare the working tree to the index.
-      const { stdout } = await execFileP('git', ['diff', ...extraArgs], opts)
+      const { stdout } = await execFileP(
+        'git',
+        ['-c', 'core.quotePath=false', 'diff', ...extraArgs],
+        opts
+      )
       return stdout
     }
   } finally {

@@ -4,6 +4,7 @@ import { ElMessage } from 'element-plus'
 import { RefreshCw, GitCommit, User, Calendar, Search } from 'lucide-vue-next'
 import DiffViewer from './DiffViewer.vue'
 import { computeGraph, GRAPH, laneCenterX } from '../lib/commitGraph'
+import { splitDiffByFile, type FilePatch } from '../lib/gitDiffFiles'
 import type { CommitInfo, CommitDetail, BranchInfo } from '@shared/types'
 
 const props = defineProps<{ cwd: string }>()
@@ -223,7 +224,10 @@ async function loadInitial(): Promise<void> {
     }
     // 不 await:branches 信息独立于主列表渲染,异步注入避免 ~0.5-1s 的 rev-list
     // 卡住 commits 显示。
-    void loadBranchesForCommits(list.map((c) => c.hash), myGen)
+    void loadBranchesForCommits(
+      list.map((c) => c.hash),
+      myGen
+    )
   } catch {
     if (myGen === listGen) commits.value = []
   } finally {
@@ -246,7 +250,10 @@ async function loadMore(): Promise<void> {
     if (myGen !== listGen) return
     commits.value = [...commits.value, ...list]
     if (list.length < PAGE) hasMore.value = false
-    void loadBranchesForCommits(list.map((c) => c.hash), myGen)
+    void loadBranchesForCommits(
+      list.map((c) => c.hash),
+      myGen
+    )
   } finally {
     loadingMore.value = false
   }
@@ -354,66 +361,6 @@ defineExpose({ refresh: loadInitial })
 // diff2html's output back into a string, and keeps the original git format
 // (with /dev/null markers, mode lines, binary deltas) intact for the
 // right-side DiffViewer.
-interface FilePatch {
-  path: string
-  status: 'new' | 'deleted' | 'renamed' | 'modified' | 'binary'
-  added: number
-  deleted: number
-  body: string
-}
-
-function splitDiffByFile(rawDiff: string): FilePatch[] {
-  if (!rawDiff) return []
-  const result: FilePatch[] = []
-  const lines = rawDiff.split('\n')
-  let current: string[] = []
-  let started = false
-  const flush = (): void => {
-    if (!started || !current.length) return
-    const body = current.join('\n')
-    const header = current[0]
-    const m = header.match(/^diff --git a\/(\S+) b\/(\S+)/)
-    const oldPath = m ? m[1] : ''
-    const newPath = m ? m[2] : ''
-    // Inspect the small header window for new/deleted/renamed/binary cues.
-    let status: FilePatch['status'] = 'modified'
-    let renamed = false
-    let isBinary = false
-    for (let i = 0; i < Math.min(current.length, 12); i++) {
-      const l = current[i]
-      if (l.startsWith('new file mode')) status = 'new'
-      else if (l.startsWith('deleted file mode')) status = 'deleted'
-      else if (l.startsWith('rename from ') || l.startsWith('rename to ')) renamed = true
-      else if (l.startsWith('Binary files ')) isBinary = true
-    }
-    if (renamed) status = 'renamed'
-    if (isBinary && status === 'modified') status = 'binary'
-    // Count added/deleted lines (skip the +++/--- headers themselves).
-    let added = 0
-    let deleted = 0
-    for (const l of current) {
-      if (l.startsWith('+') && !l.startsWith('+++')) added++
-      else if (l.startsWith('-') && !l.startsWith('---')) deleted++
-    }
-    const path =
-      renamed && oldPath && newPath && oldPath !== newPath
-        ? `${oldPath} → ${newPath}`
-        : newPath || oldPath || '(unknown)'
-    result.push({ path, status, added, deleted, body })
-  }
-  for (const line of lines) {
-    if (line.startsWith('diff --git ')) {
-      flush()
-      current = [line]
-      started = true
-    } else {
-      current.push(line)
-    }
-  }
-  flush()
-  return result
-}
-
 const filePatches = computed<FilePatch[]>(() => splitDiffByFile(detail.value?.diff || ''))
 const selectedFileIdx = ref(0)
 const selectedPatch = computed(() => filePatches.value[selectedFileIdx.value]?.body || '')
@@ -591,11 +538,7 @@ const fileStatusLabel = (s: FilePatch['status']): string =>
                  (absolute 脱离布局,SVG 没 viewBox 默认 height 150px 不会反过
                  来把 row 拉高),圆点 cy=18 仍对齐 subject 行视觉中心,底段
                  y2="100%" 拉到 row 底,与下一个 SVG 的顶段 y=0 无缝接续。 -->
-            <div
-              v-if="graphRows[idx]"
-              class="gl-graph-cell"
-              :style="{ width: graphWidth + 'px' }"
-            >
+            <div v-if="graphRows[idx]" class="gl-graph-cell" :style="{ width: graphWidth + 'px' }">
               <svg class="gl-graph" :width="graphWidth" height="100%">
                 <line
                   v-for="(s, si) in graphRows[idx].topSegments"

@@ -46,6 +46,7 @@ export type {
 }
 
 const execFileP = promisify(execFile)
+const GIT_BRANCH_QUERY_CONCURRENCY = 6
 
 const isWindows = process.platform === 'win32'
 
@@ -988,7 +989,7 @@ export async function gitCommitBranches(
       ['for-each-ref', '--format=%(refname) %(objectname)', 'refs/heads/', 'refs/remotes/'],
       { ...GIT_OPTS, cwd, timeout: 10_000, maxBuffer: 4 * 1024 * 1024 }
     )
-    const branches: Array<{ name: string; tip: string }> = []
+    const branchesByTip = new Map<string, string[]>()
     for (const line of refsOut.split(/\r?\n/)) {
       if (!line) continue
       const sp = line.lastIndexOf(' ')
@@ -1000,29 +1001,40 @@ export async function gitCommitBranches(
       else if (refname.startsWith('refs/remotes/')) refname = refname.slice('refs/remotes/'.length)
       // origin/HEAD 是个符号引用指向另一个分支的 tip,会跟那个分支重复 —— 跳过。
       if (refname === 'HEAD' || /\/HEAD$/.test(refname)) continue
-      branches.push({ name: refname, tip })
+      const names = branchesByTip.get(tip) ?? []
+      names.push(refname)
+      branchesByTip.set(tip, names)
     }
 
     const hashSet = new Set(hashes)
 
-    // 2) 每个分支并发跑 rev-list,把命中的 hash 累到 result。allSettled 让单个
-    //    rev-list 失败(比如 shallow clone 在某些分支报错)不影响其他分支。
-    await Promise.allSettled(
-      branches.map(async (b) => {
-        try {
-          const { stdout } = await execFileP('git', ['rev-list', '--max-count=10000', b.tip], {
-            ...GIT_OPTS,
-            cwd,
-            timeout: 20_000,
-            maxBuffer: 64 * 1024 * 1024
-          })
-          for (const h of stdout.split(/\r?\n/)) {
-            if (h && hashSet.has(h)) {
-              result[h].push(b.name)
+    // 2) 相同 tip 只遍历一次，并限制 git 子进程并发，避免大仓库耗尽内存和句柄。
+    const branchGroups = Array.from(branchesByTip, ([tip, names]) => ({ tip, names }))
+    let nextGroup = 0
+    const workerCount = Math.min(GIT_BRANCH_QUERY_CONCURRENCY, branchGroups.length)
+    await Promise.all(
+      Array.from({ length: workerCount }, async () => {
+        while (nextGroup < branchGroups.length) {
+          const group = branchGroups[nextGroup++]
+          try {
+            const { stdout } = await execFileP(
+              'git',
+              ['rev-list', '--max-count=10000', group.tip],
+              {
+                ...GIT_OPTS,
+                cwd,
+                timeout: 20_000,
+                maxBuffer: 8 * 1024 * 1024
+              }
+            )
+            for (const h of stdout.split(/\r?\n/)) {
+              if (h && hashSet.has(h)) {
+                result[h].push(...group.names)
+              }
             }
+          } catch {
+            // 单个分支查询失败不影响其它 —— 静默继续
           }
-        } catch {
-          // 单个分支查询失败不影响其它 —— 静默继续
         }
       })
     )
@@ -1540,12 +1552,16 @@ export async function getCommitDetail(cwd: string, hash: string): Promise<Commit
     let diff = ''
     let truncated = false
     try {
-      const { stdout } = await execFileP('git', ['show', '--format=', '--patch', hash], {
-        ...GIT_OPTS,
-        cwd,
-        maxBuffer: 10 * 1024 * 1024,
-        timeout: 15_000
-      })
+      const { stdout } = await execFileP(
+        'git',
+        ['-c', 'core.quotePath=false', 'show', '--format=', '--patch', hash],
+        {
+          ...GIT_OPTS,
+          cwd,
+          maxBuffer: 10 * 1024 * 1024,
+          timeout: 15_000
+        }
+      )
       diff = stdout
     } catch (err) {
       const e = err as { code?: string; stdout?: string }

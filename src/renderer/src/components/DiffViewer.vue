@@ -2,6 +2,7 @@
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { parse } from 'diff2html'
 import { LineType } from 'diff2html/lib-esm/types'
+import { decodeGitPath } from '../lib/gitDiffFiles'
 import ShikiWorker from '../workers/shiki.worker?worker'
 
 const props = defineProps<{
@@ -190,8 +191,8 @@ const files = computed<FileView[]>(() => {
               ? ['二进制', 'st-mod']
               : ['修改', 'st-mod']
 
-    const oldN = f.oldName && !DEV_NULL.has(f.oldName) ? f.oldName : ''
-    const newN = f.newName && !DEV_NULL.has(f.newName) ? f.newName : ''
+    const oldN = f.oldName && !DEV_NULL.has(f.oldName) ? decodeGitPath(f.oldName) : ''
+    const newN = f.newName && !DEV_NULL.has(f.newName) ? decodeGitPath(f.newName) : ''
     let name = newN || oldN
     if ((f.isRename || f.isCopy) && oldN && newN && oldN !== newN) name = `${oldN} → ${newN}`
     else if (f.isDeleted) name = oldN || newN
