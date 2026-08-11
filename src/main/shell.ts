@@ -9,7 +9,7 @@ import { basename, dirname, join, relative, resolve } from 'path'
 import { shellIntegration } from './shell-integration'
 import { getShellRuntime } from './shell-runtime'
 import { createTerminalEnvironment } from './terminal-env'
-import { AGENT_MCP_PORT, BROWSER_MCP_PORT, TERMINAL_MCP_PORT } from './mcp-config'
+import { AGENT_MCP_PORT, BROWSER_MCP_PORT, MCP_ACCESS_TOKEN, TERMINAL_MCP_PORT } from './mcp-config'
 import { killProcessTree } from './proc'
 import { readSettings } from './settings'
 import { getWorkingTreeDiff, getWorkingTreeDiffStats } from './git-working-tree-diff'
@@ -243,13 +243,15 @@ export function startPty(webContents: WebContents, opts: PtyStartOpts): void {
     env.TROUPE_AGENT_MCP_PORT = String(AGENT_MCP_PORT)
     env.TROUPE_BROWSER_MCP_PORT = String(BROWSER_MCP_PORT)
     env.TROUPE_TERMINAL_MCP_PORT = String(TERMINAL_MCP_PORT)
+    env.TROUPE_MCP_AUTH_TOKEN = MCP_ACCESS_TOKEN
     env.TROUPE_TERMINAL_MCP_TOKEN = terminalMcpToken
-    env.TROUPE_AGENT_MCP_URL = `http://127.0.0.1:${AGENT_MCP_PORT}/sse?paneId=${encodeURIComponent(opts.paneId)}`
-    env.TROUPE_BROWSER_MCP_URL = `http://127.0.0.1:${BROWSER_MCP_PORT}/sse`
-    env.TROUPE_TERMINAL_MCP_URL = `http://127.0.0.1:${TERMINAL_MCP_PORT}/sse?paneId=${encodeURIComponent(opts.paneId)}&token=${terminalMcpToken}`
-    env.TROUPE_AGENT_MCP_HTTP_URL = `http://127.0.0.1:${AGENT_MCP_PORT}/mcp?paneId=${encodeURIComponent(opts.paneId)}`
-    env.TROUPE_BROWSER_MCP_HTTP_URL = `http://127.0.0.1:${BROWSER_MCP_PORT}/mcp`
-    env.TROUPE_TERMINAL_MCP_HTTP_URL = `http://127.0.0.1:${TERMINAL_MCP_PORT}/mcp?paneId=${encodeURIComponent(opts.paneId)}&token=${terminalMcpToken}`
+    const auth = encodeURIComponent(MCP_ACCESS_TOKEN)
+    env.TROUPE_AGENT_MCP_URL = `http://127.0.0.1:${AGENT_MCP_PORT}/sse?paneId=${encodeURIComponent(opts.paneId)}&auth=${auth}`
+    env.TROUPE_BROWSER_MCP_URL = `http://127.0.0.1:${BROWSER_MCP_PORT}/sse?auth=${auth}`
+    env.TROUPE_TERMINAL_MCP_URL = `http://127.0.0.1:${TERMINAL_MCP_PORT}/sse?paneId=${encodeURIComponent(opts.paneId)}&token=${terminalMcpToken}&auth=${auth}`
+    env.TROUPE_AGENT_MCP_HTTP_URL = `http://127.0.0.1:${AGENT_MCP_PORT}/mcp?paneId=${encodeURIComponent(opts.paneId)}&auth=${auth}`
+    env.TROUPE_BROWSER_MCP_HTTP_URL = `http://127.0.0.1:${BROWSER_MCP_PORT}/mcp?auth=${auth}`
+    env.TROUPE_TERMINAL_MCP_HTTP_URL = `http://127.0.0.1:${TERMINAL_MCP_PORT}/mcp?paneId=${encodeURIComponent(opts.paneId)}&token=${terminalMcpToken}&auth=${auth}`
 
     // 一版兼容别名，避免已配置的 Agent 脚本在升级后立刻失效。
     env.GITTIM_PANE_ID = env.TROUPE_PANE_ID
@@ -257,6 +259,7 @@ export function startPty(webContents: WebContents, opts: PtyStartOpts): void {
     env.GITTIM_AGENT_MCP_PORT = env.TROUPE_AGENT_MCP_PORT
     env.GITTIM_BROWSER_MCP_PORT = env.TROUPE_BROWSER_MCP_PORT
     env.GITTIM_TERMINAL_MCP_PORT = env.TROUPE_TERMINAL_MCP_PORT
+    env.GITTIM_MCP_AUTH_TOKEN = env.TROUPE_MCP_AUTH_TOKEN
     env.GITTIM_TERMINAL_MCP_TOKEN = env.TROUPE_TERMINAL_MCP_TOKEN
     env.GITTIM_AGENT_MCP_URL = env.TROUPE_AGENT_MCP_URL
     env.GITTIM_BROWSER_MCP_URL = env.TROUPE_BROWSER_MCP_URL

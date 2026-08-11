@@ -53,7 +53,18 @@ import {
   type AgentSessionState
 } from './mcp-agent'
 import { TERMINAL_TOOLS, handleTerminalToolCall, isTerminalTool } from './mcp-terminal'
-import { AGENT_MCP_PORT, BROWSER_MCP_PORT, MCP_HOST, TERMINAL_MCP_PORT } from './mcp-config'
+import {
+  AGENT_MCP_PORT,
+  BROWSER_MCP_PORT,
+  MCP_ACCESS_TOKEN,
+  MCP_HOST,
+  TERMINAL_MCP_PORT
+} from './mcp-config'
+import {
+  isJsonContentType,
+  isMcpRequestAuthorized,
+  isMcpRequestOriginAllowed
+} from './mcp-http-security'
 import type { McpToolDef, McpToolResult } from './mcp-types'
 
 // ---------------------------------------------------------------------------
@@ -74,6 +85,10 @@ const SUPPORTED_PROTOCOL_VERSIONS = new Set([
   '2025-11-25'
 ])
 const DEFAULT_PROTOCOL_VERSION = '2025-11-25'
+const MAX_REQUEST_BODY_BYTES = 1024 * 1024
+const MAX_HTTP_SESSIONS = 128
+const MAX_SSE_SESSIONS = 64
+const HTTP_SESSION_IDLE_TTL_MS = 30 * 60 * 1000
 
 // ---------------------------------------------------------------------------
 // 类型
@@ -87,6 +102,7 @@ interface McpSession {
   accessToken?: string
   agent?: AgentSessionState
   protocolVersion?: string
+  lastActivityAt: number
 }
 
 interface SseSession extends McpSession {
@@ -712,6 +728,7 @@ const BROWSER_TOOLS: McpToolDef[] = [
 const sseSessions = new Map<string, SseSession>()
 const httpSessions = new Map<string, McpSession>()
 const serverInstances = new Map<McpServerKind, ReturnType<typeof createServer>>()
+let sessionCleanupTimer: ReturnType<typeof setInterval> | null = null
 
 const agentToolHost: AgentToolHost = {
   getPtyWebContents
@@ -1672,8 +1689,7 @@ function setSseHeaders(res: ServerResponse): void {
   res.writeHead(200, {
     'Content-Type': 'text/event-stream',
     'Cache-Control': 'no-cache',
-    Connection: 'keep-alive',
-    'Access-Control-Allow-Origin': '*'
+    Connection: 'keep-alive'
   })
 }
 
@@ -1792,14 +1808,44 @@ async function handleJsonRpc(
   }
 }
 
+class RequestBodyTooLargeError extends Error {}
+
+function pruneExpiredHttpSessions(now = Date.now()): void {
+  for (const [sessionId, session] of httpSessions) {
+    if (now - session.lastActivityAt > HTTP_SESSION_IDLE_TTL_MS) {
+      httpSessions.delete(sessionId)
+    }
+  }
+}
+
+function startSessionCleanupTimer(): void {
+  if (sessionCleanupTimer) return
+  sessionCleanupTimer = setInterval(pruneExpiredHttpSessions, 60_000)
+  sessionCleanupTimer.unref()
+}
+
 async function readBody(req: IncomingMessage): Promise<string> {
   return new Promise((resolve, reject) => {
-    let data = ''
+    const chunks: Buffer[] = []
+    let size = 0
+    let settled = false
     req.on('data', (chunk: Buffer) => {
-      data += chunk.toString()
+      if (settled) return
+      size += chunk.length
+      if (size > MAX_REQUEST_BODY_BYTES) {
+        settled = true
+        chunks.length = 0
+        reject(new RequestBodyTooLargeError('请求体过大'))
+        return
+      }
+      chunks.push(chunk)
     })
-    req.on('end', () => resolve(data))
-    req.on('error', reject)
+    req.on('end', () => {
+      if (!settled) resolve(Buffer.concat(chunks, size).toString('utf8'))
+    })
+    req.on('error', (error) => {
+      if (!settled) reject(error)
+    })
   })
 }
 
@@ -1809,48 +1855,65 @@ function startMcpServer(kind: McpServerKind, port: number): number {
   const server = createServer(async (req, res) => {
     const url = new URL(req.url ?? '/', `http://${MCP_HOST}:${port}`)
 
-    // CORS preflight
-    if (req.method === 'OPTIONS') {
-      res.writeHead(204, {
-        'Access-Control-Allow-Origin': '*',
-        'Access-Control-Allow-Methods': 'GET, POST, DELETE, OPTIONS',
-        'Access-Control-Allow-Headers':
-          'Content-Type, Accept, Mcp-Session-Id, MCP-Protocol-Version, Authorization',
-        'Access-Control-Expose-Headers': 'Mcp-Session-Id, MCP-Protocol-Version',
-        'Access-Control-Max-Age': '86400'
+    // MCP 仅供本机进程使用。浏览器 Origin 即使拿到 URL 也不能调用高权限工具。
+    if (!isMcpRequestOriginAllowed(req.headers)) {
+      res.writeHead(403, { 'Content-Type': 'text/plain', Vary: 'Origin' })
+      res.end('Forbidden')
+      return
+    }
+
+    if (!isMcpRequestAuthorized(req.headers, url, MCP_ACCESS_TOKEN)) {
+      res.writeHead(401, {
+        'Content-Type': 'text/plain',
+        'Cache-Control': 'no-store',
+        'WWW-Authenticate': 'Bearer'
       })
-      res.end()
+      res.end('Unauthorized')
+      return
+    }
+
+    if (req.method === 'OPTIONS') {
+      res.writeHead(405, { Allow: 'GET, POST, DELETE', 'Content-Type': 'text/plain' })
+      res.end('Method Not Allowed')
       return
     }
 
     // POST /mcp —— Streamable HTTP JSON-RPC 请求
     if (req.method === 'POST' && url.pathname === '/mcp') {
+      if (!isJsonContentType(req.headers)) {
+        res.writeHead(415, { 'Content-Type': 'application/json' })
+        res.end(
+          JSON.stringify(jsonRpcError(null, ERR_REQUEST, 'Content-Type 必须为 application/json'))
+        )
+        return
+      }
+
       let value: unknown
       try {
         value = JSON.parse(await readBody(req))
-      } catch {
-        res.writeHead(400, {
-          'Content-Type': 'application/json',
-          'Access-Control-Allow-Origin': '*'
-        })
-        res.end(JSON.stringify(jsonRpcError(null, ERR_PARSE, '无效的 JSON')))
+      } catch (error) {
+        const tooLarge = error instanceof RequestBodyTooLargeError
+        res.writeHead(tooLarge ? 413 : 400, { 'Content-Type': 'application/json' })
+        res.end(
+          JSON.stringify(
+            jsonRpcError(
+              null,
+              tooLarge ? ERR_REQUEST : ERR_PARSE,
+              tooLarge ? '请求体过大' : '无效的 JSON'
+            )
+          )
+        )
         return
       }
 
       if (!isJsonRpcRequest(value)) {
-        res.writeHead(400, {
-          'Content-Type': 'application/json',
-          'Access-Control-Allow-Origin': '*'
-        })
+        res.writeHead(400, { 'Content-Type': 'application/json' })
         res.end(JSON.stringify(jsonRpcError(null, ERR_REQUEST, '无效的 JSON-RPC 请求')))
         return
       }
 
       if (value.method === 'initialize' && value.id === undefined) {
-        res.writeHead(400, {
-          'Content-Type': 'application/json',
-          'Access-Control-Allow-Origin': '*'
-        })
+        res.writeHead(400, { 'Content-Type': 'application/json' })
         res.end(JSON.stringify(jsonRpcError(null, ERR_REQUEST, 'initialize 必须包含请求 ID')))
         return
       }
@@ -1861,34 +1924,43 @@ function startMcpServer(kind: McpServerKind, port: number): number {
       let createdSession = false
 
       if (value.method === 'initialize') {
+        pruneExpiredHttpSessions()
+        if (httpSessions.size >= MAX_HTTP_SESSIONS) {
+          res.writeHead(503, { 'Content-Type': 'application/json', 'Retry-After': '60' })
+          res.end(JSON.stringify(jsonRpcError(value.id, ERR_INTERNAL, 'MCP session 数量已达上限')))
+          return
+        }
         session = {
           id: randomUUID(),
           kind,
           transport: 'http',
           paneId: url.searchParams.get('paneId') ?? undefined,
-          accessToken: url.searchParams.get('token') ?? undefined
+          accessToken: url.searchParams.get('token') ?? undefined,
+          lastActivityAt: Date.now()
         }
         createdSession = true
       } else {
         if (!sessionId) {
-          res.writeHead(400, {
-            'Content-Type': 'application/json',
-            'Access-Control-Allow-Origin': '*'
-          })
+          res.writeHead(400, { 'Content-Type': 'application/json' })
           res.end(JSON.stringify(jsonRpcError(value.id, ERR_REQUEST, '缺少 Mcp-Session-Id')))
           return
         }
 
-        const existingSession = httpSessions.get(sessionId)
+        let existingSession = httpSessions.get(sessionId)
+        if (
+          existingSession &&
+          Date.now() - existingSession.lastActivityAt > HTTP_SESSION_IDLE_TTL_MS
+        ) {
+          httpSessions.delete(sessionId)
+          existingSession = undefined
+        }
         if (!existingSession || existingSession.kind !== kind) {
-          res.writeHead(404, {
-            'Content-Type': 'application/json',
-            'Access-Control-Allow-Origin': '*'
-          })
+          res.writeHead(404, { 'Content-Type': 'application/json' })
           res.end(JSON.stringify(jsonRpcError(value.id, ERR_REQUEST, '未知或已过期的 session')))
           return
         }
         session = existingSession
+        session.lastActivityAt = Date.now()
 
         const protocolHeader = req.headers['mcp-protocol-version']
         const protocolVersion = Array.isArray(protocolHeader) ? protocolHeader[0] : protocolHeader
@@ -1897,10 +1969,7 @@ function startMcpServer(kind: McpServerKind, port: number): number {
           session.protocolVersion &&
           protocolVersion !== session.protocolVersion
         ) {
-          res.writeHead(400, {
-            'Content-Type': 'application/json',
-            'Access-Control-Allow-Origin': '*'
-          })
+          res.writeHead(400, { 'Content-Type': 'application/json' })
           res.end(JSON.stringify(jsonRpcError(value.id, ERR_REQUEST, 'MCP 协议版本不匹配')))
           return
         }
@@ -1911,7 +1980,6 @@ function startMcpServer(kind: McpServerKind, port: number): number {
 
       if (!response) {
         res.writeHead(202, {
-          'Access-Control-Allow-Origin': '*',
           ...(createdSession ? { 'Mcp-Session-Id': session.id } : {})
         })
         res.end()
@@ -1920,8 +1988,6 @@ function startMcpServer(kind: McpServerKind, port: number): number {
 
       res.writeHead(200, {
         'Content-Type': 'application/json',
-        'Access-Control-Allow-Origin': '*',
-        'Access-Control-Expose-Headers': 'Mcp-Session-Id, MCP-Protocol-Version',
         ...(createdSession ? { 'Mcp-Session-Id': session.id } : {}),
         ...(session.protocolVersion ? { 'MCP-Protocol-Version': session.protocolVersion } : {})
       })
@@ -1933,8 +1999,7 @@ function startMcpServer(kind: McpServerKind, port: number): number {
     if (req.method === 'GET' && url.pathname === '/mcp') {
       res.writeHead(405, {
         Allow: 'POST, DELETE',
-        'Content-Type': 'text/plain',
-        'Access-Control-Allow-Origin': '*'
+        'Content-Type': 'text/plain'
       })
       res.end('Method Not Allowed')
       return
@@ -1945,24 +2010,29 @@ function startMcpServer(kind: McpServerKind, port: number): number {
       const headerSessionId = req.headers['mcp-session-id']
       const sessionId = Array.isArray(headerSessionId) ? headerSessionId[0] : headerSessionId
       if (!sessionId) {
-        res.writeHead(400, { 'Content-Type': 'text/plain', 'Access-Control-Allow-Origin': '*' })
+        res.writeHead(400, { 'Content-Type': 'text/plain' })
         res.end('缺少 Mcp-Session-Id')
         return
       }
       const session = httpSessions.get(sessionId)
       if (!session || session.kind !== kind) {
-        res.writeHead(404, { 'Content-Type': 'text/plain', 'Access-Control-Allow-Origin': '*' })
+        res.writeHead(404, { 'Content-Type': 'text/plain' })
         res.end('未知或已过期的 session')
         return
       }
       httpSessions.delete(sessionId)
-      res.writeHead(204, { 'Access-Control-Allow-Origin': '*' })
+      res.writeHead(204)
       res.end()
       return
     }
 
     // GET /sse —— 建立 SSE 连接
     if (req.method === 'GET' && url.pathname === '/sse') {
+      if (sseSessions.size >= MAX_SSE_SESSIONS) {
+        res.writeHead(503, { 'Content-Type': 'text/plain', 'Retry-After': '60' })
+        res.end('MCP session 数量已达上限')
+        return
+      }
       const sessionId = randomUUID()
       setSseHeaders(res)
 
@@ -1974,11 +2044,12 @@ function startMcpServer(kind: McpServerKind, port: number): number {
         kind,
         transport: 'sse',
         paneId,
-        accessToken
+        accessToken,
+        lastActivityAt: Date.now()
       }
       sseSessions.set(sessionId, session)
 
-      const messageUrl = `http://${MCP_HOST}:${port}/message?sessionId=${sessionId}`
+      const messageUrl = `http://${MCP_HOST}:${port}/message?sessionId=${sessionId}&auth=${encodeURIComponent(MCP_ACCESS_TOKEN)}`
       sendSseEvent(res, 'endpoint', messageUrl)
 
       req.on('close', () => {
@@ -1990,6 +2061,11 @@ function startMcpServer(kind: McpServerKind, port: number): number {
 
     // POST /message?sessionId=<id> —— 接收 JSON-RPC 请求
     if (req.method === 'POST' && url.pathname === '/message') {
+      if (!isJsonContentType(req.headers)) {
+        res.writeHead(415, { 'Content-Type': 'text/plain' })
+        res.end('Content-Type 必须为 application/json')
+        return
+      }
       const sessionId = url.searchParams.get('sessionId')
       if (!sessionId) {
         res.writeHead(400, { 'Content-Type': 'text/plain' })
@@ -2003,6 +2079,7 @@ function startMcpServer(kind: McpServerKind, port: number): number {
         res.end('未知或已过期的 session')
         return
       }
+      session.lastActivityAt = Date.now()
 
       try {
         const raw = await readBody(req)
@@ -2013,9 +2090,10 @@ function startMcpServer(kind: McpServerKind, port: number): number {
 
         const response = await handleJsonRpc(session, value)
         if (response) sendSseJsonRpc(session.res, response)
-      } catch {
-        res.writeHead(400, { 'Content-Type': 'text/plain' })
-        res.end('无效的 JSON-RPC 请求')
+      } catch (error) {
+        const tooLarge = error instanceof RequestBodyTooLargeError
+        res.writeHead(tooLarge ? 413 : 400, { 'Content-Type': 'text/plain' })
+        res.end(tooLarge ? '请求体过大' : '无效的 JSON-RPC 请求')
       }
       return
     }
@@ -2025,6 +2103,10 @@ function startMcpServer(kind: McpServerKind, port: number): number {
     res.end('Not Found')
   })
 
+  server.on('error', (error) => {
+    if (serverInstances.get(kind) === server) serverInstances.delete(kind)
+    console.error(`[mcp] ${kind} MCP server failed on ${MCP_HOST}:${port}:`, error)
+  })
   server.listen(port, MCP_HOST, () => {
     console.log(`[mcp] ${kind} MCP server listening on http://${MCP_HOST}:${port}/sse and /mcp`)
   })
@@ -2034,12 +2116,17 @@ function startMcpServer(kind: McpServerKind, port: number): number {
 }
 
 export function startMcpServers(): void {
+  startSessionCleanupTimer()
   startMcpServer('browser', BROWSER_MCP_PORT)
   startMcpServer('agent', AGENT_MCP_PORT)
   startMcpServer('terminal', TERMINAL_MCP_PORT)
 }
 
 export function stopMcpServers(): void {
+  if (sessionCleanupTimer) {
+    clearInterval(sessionCleanupTimer)
+    sessionCleanupTimer = null
+  }
   for (const [, session] of sseSessions) {
     try {
       session.res.end()
