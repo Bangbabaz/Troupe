@@ -7,13 +7,13 @@
   background-color: var(--el-bg-color);
   box-sizing: border-box;
   position: relative;
-  // clip the browser drawer when it's translated off-screen (closed state)
+  // Clip the workspace drawer when it is translated off-screen.
   overflow: clip;
 }
 
-// 浏览器专用的 teleport 宿主。包含块只作用于浏览器 overlay，不会影响
+// 工作区侧栏专用的 teleport 宿主。包含块只作用于侧栏 overlay，不会影响
 // PaneToolbar 中的分支、diff、合并等其它 Element Plus 弹窗。
-.browser-drawer-host {
+.workspace-drawer-host {
   position: absolute;
   inset: 0;
   z-index: 20;
@@ -21,20 +21,20 @@
   contain: paint;
   pointer-events: none;
 
-  :deep(.browser-drawer-overlay) {
+  :deep(.workspace-drawer-overlay) {
     position: absolute !important;
     inset: 0 !important;
     overflow: hidden;
     pointer-events: none;
   }
 
-  :deep(.browser-drawer-overlay .el-drawer) {
+  :deep(.workspace-drawer-overlay .el-drawer) {
     position: absolute !important;
     pointer-events: auto;
     max-width: 90% !important;
   }
 
-  :deep(.browser-drawer-overlay .el-drawer__body) {
+  :deep(.workspace-drawer-overlay .el-drawer__body) {
     padding: 0;
   }
 }
@@ -45,7 +45,7 @@
   width: 100%;
 }
 
-// 终端容器 —— pane-body 不再需要 relative，drawer 在 terminal-wrapper 层
+// 终端容器 —— pane-body 不再需要 relative，drawer 在 terminal-wrapper 层。
 .pane-body {
   flex: 1;
   min-height: 0;

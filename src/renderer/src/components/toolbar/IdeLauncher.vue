@@ -1,7 +1,14 @@
 <script setup lang="ts">
 import { computed, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
-import { ChevronDown, FolderClosed, RefreshCw, SquareTerminal } from 'lucide-vue-next'
+import {
+  ChevronDown,
+  ChevronRight,
+  ExternalLink,
+  FolderClosed,
+  RefreshCw,
+  SquareTerminal
+} from 'lucide-vue-next'
 import { iconFor } from '../ideIcons'
 import { useIdes } from '../../composables/useIdes'
 
@@ -11,9 +18,21 @@ import { useIdes } from '../../composables/useIdes'
 // **不依赖 git** —— 任何 cwd 都能用,PaneToolbar 在 isRepo / 非 isRepo 时都
 // 渲染。
 
-const props = defineProps<{
-  paneId: string
-  cwd: string
+const props = withDefaults(
+  defineProps<{
+    paneId: string
+    cwd: string
+    targetKind?: 'directory' | 'file'
+    variant?: 'toolbar' | 'context'
+  }>(),
+  {
+    targetKind: 'directory',
+    variant: 'toolbar'
+  }
+)
+
+const emit = defineEmits<{
+  opened: []
 }>()
 
 const {
@@ -34,12 +53,13 @@ onMounted(() => void initIdes())
 async function openWithIde(id: string): Promise<void> {
   if (!props.cwd) return
   await initIdes()
-  const r = await window.api.ideOpen(id, props.cwd)
+  const r = await window.api.ideOpen(id, props.cwd, props.targetKind)
   if (!r.success) {
-    ElMessage.error(r.error || '打开 IDE 失败')
+    ElMessage.error(r.error || '打开失败')
     return
   }
   setSelected(id)
+  emit('opened')
 }
 
 const openSelectedIde = async (): Promise<void> => {
@@ -59,8 +79,9 @@ const onPickIde = async (cmd: string): Promise<void> => {
 </script>
 
 <template>
-  <div class="ide-group">
+  <div class="ide-group" :class="{ 'is-context': props.variant === 'context' }">
     <button
+      v-if="props.variant === 'toolbar'"
       class="ide-chip"
       :class="{ 'has-real-icon': !!selectedIde?.iconDataUrl }"
       :disabled="ideLoading"
@@ -98,12 +119,25 @@ const onPickIde = async (cmd: string): Promise<void> => {
     </button>
     <el-dropdown
       trigger="click"
-      placement="bottom-end"
+      :placement="props.variant === 'context' ? 'right-start' : 'bottom-end'"
+      :teleported="props.variant !== 'context'"
+      :class="{ 'ide-context-dropdown': props.variant === 'context' }"
       popper-class="ide-pick-dropdown"
       @command="onPickIde"
     >
-      <button class="ide-caret" :disabled="ideLoading" title="切换 IDE" aria-label="切换 IDE">
+      <button
+        v-if="props.variant === 'toolbar'"
+        class="ide-caret"
+        :disabled="ideLoading"
+        title="打开于"
+        aria-label="打开于"
+      >
         <ChevronDown :size="12" />
+      </button>
+      <button v-else class="ide-context-trigger" :disabled="ideLoading">
+        <ExternalLink :size="14" />
+        <span>打开于</span>
+        <ChevronRight :size="12" />
       </button>
       <template #dropdown>
         <el-dropdown-menu>

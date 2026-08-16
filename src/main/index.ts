@@ -99,6 +99,17 @@ import { MCP_ACCESS_TOKEN } from './mcp-config'
 import { setSshCommandApprovalHandler, setSshPermissionsChangedHandler } from './ssh-permissions'
 import { listAgentSessions } from './agent-sessions'
 import { configureShellRuntime, listAvailableShells } from './shell-runtime'
+import {
+  getFileBrowserGitStatus,
+  listFileBrowserDirectory,
+  readFileBrowserPreview,
+  relativeFileBrowserPath,
+  resolveFileBrowserPath,
+  searchFileBrowser,
+  startFileBrowserWatch,
+  stopAllFileBrowserWatches,
+  stopFileBrowserWatch
+} from './file-browser'
 import icon from '../../resources/icon.png?asset'
 import type {
   PtyStartOpts,
@@ -882,11 +893,63 @@ app.whenReady().then(() => {
     }
   })
 
+  ipcMain.handle('file-browser-list', (event, root: string, relativePath?: string) => {
+    assertTrustedIpcSender(event)
+    return listFileBrowserDirectory(root, relativePath)
+  })
+  ipcMain.handle('file-browser-search', (event, root: string, query: string) => {
+    assertTrustedIpcSender(event)
+    return searchFileBrowser(root, query)
+  })
+  ipcMain.handle('file-browser-preview', (event, root: string, relativePath: string) => {
+    assertTrustedIpcSender(event)
+    return readFileBrowserPreview(root, relativePath)
+  })
+  ipcMain.handle('file-browser-git-status', (event, root: string) => {
+    assertTrustedIpcSender(event)
+    return getFileBrowserGitStatus(root)
+  })
+  ipcMain.handle('file-browser-open', async (event, root: string, relativePath: string) => {
+    assertTrustedIpcSender(event)
+    const target = await resolveFileBrowserPath(root, relativePath)
+    return (await shell.openPath(target)) === ''
+  })
+  ipcMain.handle('file-browser-reveal', async (event, root: string, relativePath: string) => {
+    assertTrustedIpcSender(event)
+    const target = await resolveFileBrowserPath(root, relativePath)
+    shell.showItemInFolder(target)
+    return true
+  })
+  ipcMain.handle(
+    'file-browser-relative-path',
+    (event, root: string, relativePath: string, fromDirectory: string) => {
+      assertTrustedIpcSender(event)
+      return relativeFileBrowserPath(root, relativePath, fromDirectory)
+    }
+  )
+  ipcMain.handle('file-browser-watch-start', async (event, paneId: string, root: string) => {
+    assertTrustedIpcSender(event)
+    const ownerId = `${event.sender.id}:${paneId}`
+    await startFileBrowserWatch(ownerId, root, (watchedRoot, paths) => {
+      if (event.sender.isDestroyed()) return
+      event.sender.send('file-browser-changed', { paneId, root: watchedRoot, paths })
+    })
+    event.sender.once('destroyed', () => stopFileBrowserWatch(ownerId))
+  })
+  ipcMain.handle('file-browser-watch-stop', (event, paneId: string) => {
+    assertTrustedIpcSender(event)
+    stopFileBrowserWatch(`${event.sender.id}:${paneId}`)
+  })
+
   // IDE detection + launch. Detection scans PATH + a handful of well-known
   // install dirs; the result is cached for the session unless the renderer
   // explicitly forces a re-scan (e.g. after the user installed something new).
   ipcMain.handle('ide-list', (_event, force?: boolean) => detectIdes(!!force))
-  ipcMain.handle('ide-open', (_event, ideId: string, cwd: string) => openIde(ideId, cwd))
+  ipcMain.handle(
+    'ide-open',
+    (_event, ideId: string, targetPath: string, targetKind?: 'directory' | 'file') =>
+      openIde(ideId, targetPath, targetKind)
+  )
   ipcMain.handle('open-folder', async (event, cwd: string) => {
     assertTrustedIpcSender(event)
     return (await shell.openPath(cwd)) === ''
@@ -996,6 +1059,7 @@ async function runCleanup(): Promise<void> {
 }
 
 app.on('before-quit', (event) => {
+  stopAllFileBrowserWatches()
   if (cleanupDone) return
   event.preventDefault()
   runCleanup().then(() => app.quit())

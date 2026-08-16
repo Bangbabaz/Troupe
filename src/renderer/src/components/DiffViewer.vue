@@ -3,6 +3,7 @@ import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { parse } from 'diff2html'
 import { LineType } from 'diff2html/lib-esm/types'
 import { decodeGitPath } from '../lib/gitDiffFiles'
+import { detectFileLanguage } from '../lib/fileLanguage'
 import ShikiWorker from '../workers/shiki.worker?worker'
 
 const props = defineProps<{
@@ -42,63 +43,6 @@ type FileView = {
 }
 
 const DEV_NULL = new Set(['dev/null', '/dev/null'])
-
-// 文件扩展名 → shiki 语言 id。shiki 不识别的会在 tokenize 时 fallback。
-const LANG_MAP: Record<string, string> = {
-  ts: 'typescript',
-  tsx: 'tsx',
-  js: 'javascript',
-  jsx: 'jsx',
-  mjs: 'javascript',
-  cjs: 'javascript',
-  json: 'json',
-  css: 'css',
-  scss: 'scss',
-  less: 'less',
-  html: 'html',
-  htm: 'html',
-  vue: 'vue',
-  svelte: 'svelte',
-  py: 'python',
-  pyw: 'python',
-  rb: 'ruby',
-  rs: 'rust',
-  go: 'go',
-  java: 'java',
-  kt: 'kotlin',
-  swift: 'swift',
-  c: 'c',
-  h: 'c',
-  cpp: 'cpp',
-  cxx: 'cpp',
-  hpp: 'cpp',
-  cs: 'csharp',
-  sh: 'bash',
-  bash: 'bash',
-  zsh: 'bash',
-  fish: 'fish',
-  yml: 'yaml',
-  yaml: 'yaml',
-  xml: 'xml',
-  svg: 'xml',
-  md: 'markdown',
-  mdx: 'mdx',
-  sql: 'sql',
-  Dockerfile: 'dockerfile',
-  dockerfile: 'dockerfile',
-  toml: 'toml',
-  ini: 'ini',
-  cfg: 'ini',
-  conf: 'ini',
-  lua: 'lua',
-  php: 'php',
-  r: 'r',
-  Makefile: 'makefile',
-  cmake: 'cmake',
-  graphql: 'graphql',
-  gql: 'graphql',
-  proto: 'proto'
-}
 
 // shiki 在 Web Worker 里跑（src/renderer/src/workers/shiki.worker.ts），主线程
 // 零阻塞 —— codeToHtml 是同步 CPU 密集操作，放在主线程会让 el-dialog 的进入
@@ -142,16 +86,6 @@ onBeforeUnmount(() => {
   pending.clear()
   worker.terminate()
 })
-
-function detectLang(filename: string): string | null {
-  const base = filename.replace(/\\/g, '/').split('/').pop() || filename
-  const lower = base.toLowerCase()
-  if (LANG_MAP[lower]) return LANG_MAP[lower]
-  const dot = base.lastIndexOf('.')
-  if (dot < 0) return null
-  const ext = base.slice(dot + 1).toLowerCase()
-  return LANG_MAP[ext] || null
-}
 
 function escapeHtml(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
@@ -246,7 +180,7 @@ const files = computed<FileView[]>(() => {
       deleted: f.deletedLines,
       rows,
       binary: !!f.isBinary,
-      lang: detectLang(name)
+      lang: detectFileLanguage(name)
     }
   })
 })

@@ -247,6 +247,7 @@ export interface UseLayoutReturn {
   layout: Ref<LayoutNode | null>
   activeId: Ref<string | null>
   paneCwd: Ref<Record<string, string>>
+  paneWorkspaceRoot: Ref<Record<string, string>>
   paneTerminalState: Ref<Record<string, SavedTerminalState>>
   dragState: Ref<DragState | null>
   paneDrag: Ref<{ id: string } | null>
@@ -267,6 +268,7 @@ export interface UseLayoutReturn {
   ) => void
   setActive: (id: string) => void
   onCwdChange: (paneId: string, newCwd: string) => void
+  onWorkspaceRootChange: (paneId: string, root: string) => void
   /**
    * 移动焦点到相邻面板。dir 是物理方向 —— 在当前 active pane 的几何坐标里,
    * 沿该方向找一个面板让 active 跳过去。tmux 风格 Alt+方向键的实现。
@@ -285,6 +287,7 @@ export interface UseLayoutReturn {
 export function useLayout(opts: UseLayoutOptions): UseLayoutReturn {
   const layout: Ref<LayoutNode | null> = ref(null)
   const paneCwd = ref<Record<string, string>>({})
+  const paneWorkspaceRoot = ref<Record<string, string>>({})
   const paneTerminalState = ref<Record<string, SavedTerminalState>>({})
   const activeId = ref<string | null>(null)
   const dragState = ref<DragState | null>(null)
@@ -337,6 +340,14 @@ export function useLayout(opts: UseLayoutOptions): UseLayoutReturn {
     } else if (paneCwd.value[paneId]) {
       paneCwd.value = { ...paneCwd.value, [newId]: paneCwd.value[paneId] }
     }
+    const inheritedRoot =
+      overrideCwd ??
+      paneWorkspaceRoot.value[paneId] ??
+      paneCwd.value[paneId] ??
+      opts.defaultCwd.value
+    if (inheritedRoot) {
+      paneWorkspaceRoot.value = { ...paneWorkspaceRoot.value, [newId]: inheritedRoot }
+    }
     const inheritedTerminal = paneTerminalState.value[paneId]
     if (inheritedTerminal?.kind === 'ssh') {
       paneTerminalState.value = { ...paneTerminalState.value, [newId]: inheritedTerminal }
@@ -352,6 +363,7 @@ export function useLayout(opts: UseLayoutOptions): UseLayoutReturn {
       const newId = newPaneId()
       layout.value = { type: 'pane', id: newId }
       paneCwd.value = {}
+      paneWorkspaceRoot.value = {}
       paneTerminalState.value = {}
       activeId.value = newId
       return
@@ -361,6 +373,11 @@ export function useLayout(opts: UseLayoutOptions): UseLayoutReturn {
       const rest = { ...paneCwd.value }
       delete rest[paneId]
       paneCwd.value = rest
+    }
+    if (paneWorkspaceRoot.value[paneId]) {
+      const rest = { ...paneWorkspaceRoot.value }
+      delete rest[paneId]
+      paneWorkspaceRoot.value = rest
     }
     if (paneTerminalState.value[paneId]) {
       const rest = { ...paneTerminalState.value }
@@ -406,6 +423,7 @@ export function useLayout(opts: UseLayoutOptions): UseLayoutReturn {
       // 但已创建的 worktree 不应该被"丢"。退而求其次:把当前 pane 的 cwd 改到
       // 新 worktree,用户至少能立刻进去工作,可以稍后用 split 自行打开邻居 pane。
       paneCwd.value = { ...paneCwd.value, [paneId]: worktreePath }
+      paneWorkspaceRoot.value = { ...paneWorkspaceRoot.value, [paneId]: worktreePath }
       if (paneTerminalState.value[paneId]) {
         const rest = { ...paneTerminalState.value }
         delete rest[paneId]
@@ -424,6 +442,7 @@ export function useLayout(opts: UseLayoutOptions): UseLayoutReturn {
       newFirst
     )
     paneCwd.value = { ...paneCwd.value, [newId]: worktreePath }
+    paneWorkspaceRoot.value = { ...paneWorkspaceRoot.value, [newId]: worktreePath }
     if (paneTerminalState.value[newId]) {
       const rest = { ...paneTerminalState.value }
       delete rest[newId]
@@ -437,8 +456,17 @@ export function useLayout(opts: UseLayoutOptions): UseLayoutReturn {
   }
 
   const onCwdChange = (paneId: string, newCwd: string): void => {
-    if (paneCwd.value[paneId] === newCwd) return
-    paneCwd.value = { ...paneCwd.value, [paneId]: newCwd }
+    if (!paneWorkspaceRoot.value[paneId]) {
+      paneWorkspaceRoot.value = { ...paneWorkspaceRoot.value, [paneId]: newCwd }
+    }
+    if (paneCwd.value[paneId] !== newCwd) {
+      paneCwd.value = { ...paneCwd.value, [paneId]: newCwd }
+    }
+  }
+
+  const onWorkspaceRootChange = (paneId: string, root: string): void => {
+    if (!root || paneWorkspaceRoot.value[paneId] === root) return
+    paneWorkspaceRoot.value = { ...paneWorkspaceRoot.value, [paneId]: root }
   }
 
   // ---- 邻接焦点切换 (tmux Alt+方向键 风格) -------------------------------
@@ -602,6 +630,8 @@ export function useLayout(opts: UseLayoutOptions): UseLayoutReturn {
         type: 'pane',
         id: node.id,
         cwd: paneCwd.value[node.id] || opts.defaultCwd.value || '',
+        workspaceRoot:
+          paneWorkspaceRoot.value[node.id] || paneCwd.value[node.id] || opts.defaultCwd.value || '',
         terminal: paneTerminalState.value[node.id] || { kind: 'local' }
       }
     }
@@ -626,6 +656,7 @@ export function useLayout(opts: UseLayoutOptions): UseLayoutReturn {
   const deserializeNode = (
     saved: SavedLayout,
     paneCwdAcc: Record<string, string>,
+    paneWorkspaceRootAcc: Record<string, string>,
     paneTerminalAcc: Record<string, SavedTerminalState>,
     usedPaneIds: Set<string>,
     depth = 0
@@ -637,6 +668,11 @@ export function useLayout(opts: UseLayoutOptions): UseLayoutReturn {
       const id = isSavedPaneId(saved.id) && !usedPaneIds.has(saved.id) ? saved.id : newPaneId()
       usedPaneIds.add(id)
       if (saved.cwd && typeof saved.cwd === 'string') paneCwdAcc[id] = saved.cwd
+      const workspaceRoot =
+        saved.workspaceRoot && typeof saved.workspaceRoot === 'string'
+          ? saved.workspaceRoot
+          : saved.cwd
+      if (workspaceRoot) paneWorkspaceRootAcc[id] = workspaceRoot
       if (
         saved.terminal &&
         saved.terminal.kind === 'ssh' &&
@@ -657,8 +693,22 @@ export function useLayout(opts: UseLayoutOptions): UseLayoutReturn {
         typeof saved.ratio === 'number' && saved.ratio > MIN_RATIO && saved.ratio < MAX_RATIO
           ? saved.ratio
           : 0.5,
-      a: deserializeNode(saved.a, paneCwdAcc, paneTerminalAcc, usedPaneIds, depth + 1),
-      b: deserializeNode(saved.b, paneCwdAcc, paneTerminalAcc, usedPaneIds, depth + 1)
+      a: deserializeNode(
+        saved.a,
+        paneCwdAcc,
+        paneWorkspaceRootAcc,
+        paneTerminalAcc,
+        usedPaneIds,
+        depth + 1
+      ),
+      b: deserializeNode(
+        saved.b,
+        paneCwdAcc,
+        paneWorkspaceRootAcc,
+        paneTerminalAcc,
+        usedPaneIds,
+        depth + 1
+      )
     }
   }
 
@@ -666,10 +716,18 @@ export function useLayout(opts: UseLayoutOptions): UseLayoutReturn {
     if (saved) {
       try {
         const restoredPaneCwd: Record<string, string> = {}
+        const restoredPaneWorkspaceRoot: Record<string, string> = {}
         const restoredPaneTerminal: Record<string, SavedTerminalState> = {}
-        const restored = deserializeNode(saved, restoredPaneCwd, restoredPaneTerminal, new Set())
+        const restored = deserializeNode(
+          saved,
+          restoredPaneCwd,
+          restoredPaneWorkspaceRoot,
+          restoredPaneTerminal,
+          new Set()
+        )
         layout.value = restored
         paneCwd.value = restoredPaneCwd
+        paneWorkspaceRoot.value = restoredPaneWorkspaceRoot
         paneTerminalState.value = restoredPaneTerminal
         activeId.value = firstLeafId(restored)
         return
@@ -679,6 +737,7 @@ export function useLayout(opts: UseLayoutOptions): UseLayoutReturn {
     }
     const firstId = newPaneId()
     layout.value = { type: 'pane', id: firstId }
+    paneWorkspaceRoot.value = {}
     paneTerminalState.value = {}
     activeId.value = firstId
   }
@@ -704,6 +763,7 @@ export function useLayout(opts: UseLayoutOptions): UseLayoutReturn {
     layout,
     activeId,
     paneCwd,
+    paneWorkspaceRoot,
     paneTerminalState,
     dragState,
     paneDrag,
@@ -716,6 +776,7 @@ export function useLayout(opts: UseLayoutOptions): UseLayoutReturn {
     onCreateWorktree,
     setActive,
     onCwdChange,
+    onWorkspaceRootChange,
     focusNeighbor,
     onDividerDown,
     onDividerDoubleClick,

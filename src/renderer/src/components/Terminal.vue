@@ -29,7 +29,7 @@ import {
   ChevronRight
 } from 'lucide-vue-next'
 import PaneToolbar from './PaneToolbar.vue'
-import BrowserDrawer from './BrowserDrawer.vue'
+import WorkspaceDrawer from './WorkspaceDrawer.vue'
 import SearchOverlay from './SearchOverlay.vue'
 import AgentSessionsDrawer from './AgentSessionsDrawer.vue'
 import { useTheme } from '../composables/useTheme'
@@ -48,6 +48,7 @@ const props = withDefaults(
     paneId: string
     options?: Record<string, unknown>
     cwd?: string
+    workspaceRoot?: string
     sshProfileId?: string
     sshProfileName?: string
     fontSize?: number
@@ -65,6 +66,7 @@ const props = withDefaults(
   {
     options: () => ({}),
     cwd: '',
+    workspaceRoot: '',
     sshProfileId: '',
     sshProfileName: '',
     fontSize: DEFAULT_FONT_SIZE,
@@ -86,6 +88,7 @@ const emit = defineEmits<{
     placement: 'top' | 'bottom' | 'left' | 'right'
   ): void
   (e: 'cwdChange', paneId: string, cwd: string): void
+  (e: 'workspaceRootChange', paneId: string, root: string): void
   (e: 'fontSizeChange', size: number): void
   (e: 'paneDragStart', paneId: string): void
   (e: 'focusNeighbor', dir: 'up' | 'down' | 'left' | 'right'): void
@@ -98,36 +101,48 @@ const emit = defineEmits<{
 
 const terminalRef = ref<HTMLDivElement>()
 const toolbarRef = ref<InstanceType<typeof PaneToolbar>>()
+const workspaceDrawerRef = ref<InstanceType<typeof WorkspaceDrawer>>()
 
-// 浏览器抽屉 —— 从面板右侧滑入，宽度可拖拽调节。
-// browserMounted 控制 webview 生命周期：首次打开后常驻，收起抽屉不销毁浏览器。
-// browserOpen 控制抽屉可见性：X / 工具栏按钮 / el-drawer 关闭都只改这个。
-const DEFAULT_BROWSER_WIDTH = 480
-const MIN_BROWSER_WIDTH = 360
-const MAX_BROWSER_WIDTH = 2000
+// 工作区侧栏承载文件树、文件预览和浏览器。首次打开后组件常驻，收起不会
+// 丢失展开目录、文件标签或浏览器页面。
+const DEFAULT_WORKSPACE_WIDTH = 480
+const MIN_WORKSPACE_WIDTH = 360
+const MAX_WORKSPACE_WIDTH = 2000
+const workspaceMounted = ref(false)
+const workspaceOpen = ref(false)
+const workspaceWidth = ref(DEFAULT_WORKSPACE_WIDTH)
+const workspaceActiveTool = ref<'files' | 'file' | 'browser'>('files')
 const browserMounted = ref(false)
-const browserOpen = ref(false)
-const browserWidth = ref(DEFAULT_BROWSER_WIDTH)
 const agentSessionsOpen = ref(false)
 
 const openBrowser = (): void => {
-  if (browserOpen.value) return
-  window.api.browserWillOpen()
+  if (!browserMounted.value) window.api.browserWillOpen()
+  workspaceMounted.value = true
   browserMounted.value = true
-  browserOpen.value = true
+  workspaceOpen.value = true
+  nextTick(() => workspaceDrawerRef.value?.showBrowser())
 }
 
 const toggleBrowser = (): void => {
-  if (browserOpen.value) {
-    browserOpen.value = false
+  if (workspaceOpen.value && workspaceActiveTool.value === 'browser') {
+    workspaceOpen.value = false
     return
   }
   openBrowser()
 }
 
 const closeBrowser = (): void => {
-  browserOpen.value = false
   browserMounted.value = false
+}
+
+const toggleFiles = (): void => {
+  if (workspaceOpen.value && workspaceActiveTool.value === 'files') {
+    workspaceOpen.value = false
+    return
+  }
+  workspaceMounted.value = true
+  workspaceOpen.value = true
+  nextTick(() => workspaceDrawerRef.value?.showFiles())
 }
 
 const toggleAgentSessions = (): void => {
@@ -706,6 +721,45 @@ const runQuickCommand = (command: string, execute: boolean): void => {
   if (execute) window.api.ptyWrite(props.paneId, '\r')
 }
 
+function quoteTerminalPath(value: string): string {
+  if (/^[A-Za-z0-9_./:\\-]+$/.test(value)) return value
+  if (platform === 'win32') return `"${value.replace(/"/g, '""')}"`
+  return "'" + value.replace(/'/g, "'\\''") + "'"
+}
+
+async function sendWorkspacePath(payload: {
+  absolutePath: string
+  relativePath: string
+  mode: 'absolute' | 'relative'
+}): Promise<void> {
+  let value = payload.mode === 'absolute' ? payload.absolutePath : payload.relativePath
+  if (payload.mode === 'relative') {
+    try {
+      value = await window.api.fileBrowserRelativePath(
+        props.workspaceRoot || props.cwd,
+        payload.relativePath,
+        currentCwd.value
+      )
+    } catch {
+      if (platform === 'win32') value = value.replace(/\//g, '\\')
+    }
+  }
+  workspaceOpen.value = false
+  nextTick(() => {
+    terminal.focus()
+    pasteTextPreservingViewport(quoteTerminalPath(value))
+  })
+}
+
+function changeWorkspaceRoot(root: string): void {
+  emit('workspaceRootChange', props.paneId, root)
+}
+
+function openWorkspaceFolderPane(path: string): void {
+  workspaceOpen.value = false
+  emit('split', props.paneId, 'row', path)
+}
+
 const openAgentSession = (session: AgentSessionInfo): void => {
   agentSessionsOpen.value = false
   emit('openAgentSession', session, props.paneId)
@@ -713,22 +767,22 @@ const openAgentSession = (session: AgentSessionInfo): void => {
 
 defineExpose({ terminal, fitAddon, runQuickCommand })
 
-// 点击终端区域自动收起浏览器抽屉（不销毁）
+// 点击终端区域自动收起工作区侧栏（不销毁内部状态）。
 function onTerminalClick(): void {
-  if (browserOpen.value) browserOpen.value = false
+  if (workspaceOpen.value) workspaceOpen.value = false
 }
 
-// ---- 浏览器抽屉宽度 ---------------------------------------------------
-function clampBrowserWidth(w: number): number {
-  return Math.round(Math.max(MIN_BROWSER_WIDTH, Math.min(MAX_BROWSER_WIDTH, w)))
+// ---- 工作区侧栏宽度 ---------------------------------------------------
+function clampWorkspaceWidth(w: number): number {
+  return Math.round(Math.max(MIN_WORKSPACE_WIDTH, Math.min(MAX_WORKSPACE_WIDTH, w)))
 }
 
 // el-drawer 拖拽结束回调，size 是最终 px 宽度
-function onBrowserResizeEnd(_e: MouseEvent, size: number): void {
-  const clamped = clampBrowserWidth(size)
-  if (browserWidth.value === clamped) return
-  browserWidth.value = clamped
-  window.api.settingsSet({ browserDrawerWidth: clamped })
+function onWorkspaceResizeEnd(_e: MouseEvent, size: number): void {
+  const clamped = clampWorkspaceWidth(size)
+  if (workspaceWidth.value === clamped) return
+  workspaceWidth.value = clamped
+  window.api.settingsSet({ workspaceDrawerWidth: clamped })
 }
 
 let unsubscribeData: (() => void) | null = null
@@ -893,12 +947,12 @@ onMounted(async () => {
 
   terminal.focus()
 
-  // 加载浏览器抽屉宽度（持久化）
+  // 加载工作区侧栏宽度；旧设置自动作为迁移来源。
   try {
     const settings = await window.api.settingsGet()
-    if (typeof settings.browserDrawerWidth === 'number') {
-      const w = settings.browserDrawerWidth
-      browserWidth.value = Math.max(MIN_BROWSER_WIDTH, Math.min(MAX_BROWSER_WIDTH, Math.round(w)))
+    const savedWidth = settings.workspaceDrawerWidth ?? settings.browserDrawerWidth
+    if (typeof savedWidth === 'number') {
+      workspaceWidth.value = clampWorkspaceWidth(savedWidth)
     }
   } catch {
     // ignore
@@ -943,7 +997,6 @@ onUnmounted(() => {
 <template>
   <div
     class="terminal-wrapper"
-    @click="() => terminal.focus()"
     @dragenter.capture="onTerminalDragOver"
     @dragover.capture="onTerminalDragOver"
     @drop.capture="onTerminalDrop"
@@ -954,9 +1007,12 @@ onUnmounted(() => {
       :cwd="currentCwd"
       :is-remote="!!props.sshProfileId"
       :remote-label="props.sshProfileName"
+      :sidecar-open="workspaceOpen"
+      :active-tool="workspaceActiveTool"
       @worktree-created="(path, placement) => emit('createWorktree', props.paneId, path, placement)"
       @manage-tasks="(cwd?: string, nd?: boolean) => emit('manageTasks', cwd, nd)"
       @toggle-agent-sessions="toggleAgentSessions"
+      @toggle-files="toggleFiles"
       @toggle-browser="toggleBrowser"
       @pane-drag-start="emit('paneDragStart', props.paneId)"
     />
@@ -973,28 +1029,37 @@ onUnmounted(() => {
         </div>
       </div>
     </div>
-    <!-- 浏览器抽屉 —— el-drawer，overlay 约束在 terminal-wrapper 内 -->
-    <div class="browser-drawer-host">
+    <!-- 每个 pane 独立的工作区侧栏，overlay 约束在 terminal-wrapper 内。 -->
+    <div class="workspace-drawer-host">
       <el-drawer
-        :model-value="browserOpen"
+        :model-value="workspaceOpen"
         direction="rtl"
-        :size="browserWidth"
+        :size="workspaceWidth"
         resizable
         :with-header="false"
         :modal="false"
         modal-penetrable
         :append-to-body="false"
-        modal-class="browser-drawer-overlay"
+        modal-class="workspace-drawer-overlay"
         :lock-scroll="false"
-        class="browser-drawer-pane"
-        @update:model-value="(v: boolean) => (browserOpen = v)"
-        @resize-end="onBrowserResizeEnd"
+        class="workspace-drawer-pane"
+        @update:model-value="(v: boolean) => (workspaceOpen = v)"
+        @resize-end="onWorkspaceResizeEnd"
       >
-        <BrowserDrawer
-          v-if="browserMounted"
-          :pane-id="paneId"
-          @collapse="browserOpen = false"
-          @close="closeBrowser"
+        <WorkspaceDrawer
+          v-if="workspaceMounted"
+          ref="workspaceDrawerRef"
+          :pane-id="props.paneId"
+          :root="props.workspaceRoot || props.cwd"
+          :current-cwd="currentCwd"
+          :browser-mounted="browserMounted"
+          :files-enabled="!props.sshProfileId"
+          @collapse="workspaceOpen = false"
+          @close-browser="closeBrowser"
+          @active-change="workspaceActiveTool = $event"
+          @workspace-root-change="changeWorkspaceRoot"
+          @send-path="sendWorkspacePath"
+          @open-folder-pane="openWorkspaceFolderPane"
         />
       </el-drawer>
     </div>

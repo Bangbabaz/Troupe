@@ -277,6 +277,7 @@ const {
   layout,
   activeId,
   paneCwd,
+  paneWorkspaceRoot,
   paneTerminalState,
   layoutResult,
   dragState,
@@ -288,6 +289,7 @@ const {
   onCreateWorktree,
   setActive,
   onCwdChange,
+  onWorkspaceRootChange,
   focusNeighbor,
   onDividerDown,
   onDividerDoubleClick,
@@ -783,7 +785,11 @@ onMounted(async () => {
 
   restoreFromSaved(settings?.paneLayout)
   layoutPersistenceReady = settings !== null
-  stopLayoutPersistence = watch([layout, paneCwd, paneTerminalState], scheduleSave, { deep: true })
+  stopLayoutPersistence = watch(
+    [layout, paneCwd, paneWorkspaceRoot, paneTerminalState],
+    scheduleSave,
+    { deep: true }
+  )
 
   const [maximizedResult, versionResult, shellsResult, profilesResult] = await Promise.allSettled([
     window.api.winIsMaximized(),
@@ -1582,6 +1588,7 @@ onUnmounted(() => {
             :ref="(instance: unknown) => setTerminalRef(pane.id, instance)"
             :pane-id="pane.id"
             :cwd="paneCwd[pane.id] ?? cwd"
+            :workspace-root="paneWorkspaceRoot[pane.id] ?? paneCwd[pane.id] ?? cwd"
             :ssh-profile-id="paneSshProfileId(pane.id)"
             :ssh-profile-name="sshProfileLabel(paneSshProfileId(pane.id))"
             :ssh-profiles="sshProfiles"
@@ -1596,6 +1603,7 @@ onUnmounted(() => {
             @focus-neighbor="focusNeighbor"
             @create-worktree="onCreateWorktree"
             @cwd-change="onCwdChange"
+            @workspace-root-change="onWorkspaceRootChange"
             @font-size-change="onFontSizeChange"
             @open-settings="showSettings = true"
             @connect-ssh="connectSavedSsh"

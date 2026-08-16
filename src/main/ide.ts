@@ -567,20 +567,29 @@ function openSystemTerminal(cwd: string): Promise<{ success: boolean; error?: st
 }
 
 /**
- * Launch the picked IDE on `cwd`. Windows batch launchers go through the
+ * Launch the picked IDE on a directory or file. Windows batch launchers go through the
  * guaranteed system command processor; direct GUI executables stay shell-free.
  * macOS .app bundles go through `open -a` so Finder does the right thing.
  * Detached + stdio 'ignore' so closing Troupe doesn't drag the IDE down.
  */
-export function openIde(ideId: string, cwd: string): Promise<{ success: boolean; error?: string }> {
-  if (ideId === 'os-terminal') return openSystemTerminal(cwd)
+export function openIde(
+  ideId: string,
+  targetPath: string,
+  targetKind: 'directory' | 'file' = 'directory'
+): Promise<{ success: boolean; error?: string }> {
+  const opensFile = targetKind === 'file'
+  if (ideId === 'os-terminal') {
+    return openSystemTerminal(opensFile ? dirname(targetPath) : targetPath)
+  }
   return new Promise((resolve) => {
-    // OS file manager doesn't need spawn — Electron's shell.openPath handles
-    // the per-platform open command (explorer.exe / Finder / xdg-open) and
-    // returns an empty string on success, an error message on failure.
     if (ideId === 'os-folder') {
+      if (opensFile) {
+        shell.showItemInFolder(targetPath)
+        resolve({ success: true })
+        return
+      }
       shell
-        .openPath(cwd)
+        .openPath(targetPath)
         .then((err) => {
           if (err) resolve({ success: false, error: err })
           else resolve({ success: true })
@@ -617,18 +626,18 @@ export function openIde(ideId: string, cwd: string): Promise<{ success: boolean;
       const isBatch = isWindows && (lower.endsWith('.cmd') || lower.endsWith('.bat'))
       const isMacBundle = isMac && lower.endsWith('.app')
 
-      // Normalise the folder arg's separators to the host's native style.
+      // Normalise the target's separators to the host's native style.
       // OSC 7 emits POSIX paths even on Windows (`D:/foo/bar`) — most CLIs
       // accept both, but native Windows installers / launchers occasionally
       // mishandle forward slashes, so canonicalise to be safe.
-      const folderArg = isWindows ? cwd.replace(/\//g, '\\') : cwd
+      const targetArg = isWindows ? targetPath.replace(/\//g, '\\') : targetPath
 
       let cmd: string
       let args: string[]
       let spawnEnv: NodeJS.ProcessEnv | undefined
       let windowsVerbatimArguments = false
       if (isBatch) {
-        const batch = buildWindowsBatchLaunch(windowsCmdPath(), preferredCommand, folderArg)
+        const batch = buildWindowsBatchLaunch(windowsCmdPath(), preferredCommand, targetArg)
         cmd = batch.command
         args = batch.args
         spawnEnv = batch.env
@@ -636,10 +645,10 @@ export function openIde(ideId: string, cwd: string): Promise<{ success: boolean;
       } else if (isMacBundle) {
         // No CLI shim in the bundle — use `open -a` with the .app path.
         cmd = 'open'
-        args = ['-a', ide.command, folderArg]
+        args = ['-a', ide.command, targetArg]
       } else {
         cmd = preferredCommand
-        args = [folderArg]
+        args = [targetArg]
       }
 
       // `windowsHide: true` translates to STARTF_USESHOWWINDOW + SW_HIDE in

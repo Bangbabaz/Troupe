@@ -28,9 +28,17 @@
 }
 
 .pane-drag-handle,
+.files-btn,
 .browser-btn,
 .session-btn {
   @include toolbar-icon-button(28px);
+}
+
+.files-btn.is-active,
+.browser-btn.is-active {
+  border-color: color-mix(in srgb, var(--el-color-primary) 45%, var(--el-border-color));
+  background: color-mix(in srgb, var(--el-color-primary) 10%, var(--el-bg-color));
+  color: var(--el-color-primary);
 }
 
 .pane-drag-handle {

@@ -17,7 +17,14 @@
  * 所以序列化形式记录稳定 pane ID + cwd；旧配置没有 id 时 deserialize 会分配新 ID 并把 cwd 注入 paneCwd。
  */
 export type SavedLayout =
-  | { type: 'pane'; id?: string; cwd: string; terminal?: SavedTerminalState }
+  | {
+      type: 'pane'
+      id?: string
+      cwd: string
+      /** 文件浏览器的稳定根目录；终端 cd 不会改变它。 */
+      workspaceRoot?: string
+      terminal?: SavedTerminalState
+    }
   | {
       type: 'split'
       direction: 'row' | 'column'
@@ -32,6 +39,46 @@ export type SavedTerminalState =
       kind: 'ssh'
       profileId: string
     }
+
+// ---------------------------------------------------------------------------
+// File browser
+// ---------------------------------------------------------------------------
+
+export type FileBrowserEntryKind = 'file' | 'directory'
+
+export interface FileBrowserEntry {
+  name: string
+  /** 相对 workspace root 的正斜杠路径。 */
+  relativePath: string
+  /** 主机平台原生格式的绝对路径。 */
+  absolutePath: string
+  kind: FileBrowserEntryKind
+  isSymlink: boolean
+  /** 指向 workspace root 外部的符号链接不可展开或读取。 */
+  blocked: boolean
+  size: number
+  modifiedAt: number
+}
+
+export type FileGitStatus = 'modified' | 'added' | 'deleted' | 'renamed' | 'untracked' | 'conflict'
+
+export interface FileBrowserPreview {
+  relativePath: string
+  absolutePath: string
+  size: number
+  modifiedAt: number
+  kind: 'text' | 'image' | 'binary' | 'large' | 'external'
+  mimeType?: string
+  content?: string
+  dataUrl?: string
+  truncated?: boolean
+}
+
+export interface FileBrowserChangePayload {
+  paneId: string
+  root: string
+  paths: string[]
+}
 
 // ---------------------------------------------------------------------------
 // Background tasks
@@ -249,6 +296,8 @@ export interface Settings {
   tasksDrawerWidth?: number
   /** 浏览器抽屉宽度(px),默认 480。 */
   browserDrawerWidth?: number
+  /** 工作区侧栏宽度(px)。未设置时从旧 browserDrawerWidth 迁移。 */
+  workspaceDrawerWidth?: number
   theme?: ThemePref
   /** auto 使用平台默认探测，否则为已探测到的 Shell 可执行文件。 */
   shell?: string

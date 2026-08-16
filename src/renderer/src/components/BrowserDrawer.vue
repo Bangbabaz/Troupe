@@ -34,10 +34,20 @@
       >
         <Network :size="13" />
       </button>
-      <button class="browser-nav-btn" title="收起抽屉" @click="emit('collapse')">
+      <button
+        v-if="!props.embedded"
+        class="browser-nav-btn"
+        title="收起抽屉"
+        @click="emit('collapse')"
+      >
         <Minus :size="14" />
       </button>
-      <button class="browser-nav-close" title="关闭浏览器" @click="emit('close')">
+      <button
+        v-if="!props.embedded"
+        class="browser-nav-close"
+        title="关闭浏览器"
+        @click="emit('close')"
+      >
         <X :size="14" />
       </button>
     </div>
@@ -163,9 +173,11 @@ const props = withDefaults(
   defineProps<{
     paneId: string
     initialUrl?: string
+    embedded?: boolean
   }>(),
   {
-    initialUrl: 'about:blank'
+    initialUrl: 'about:blank',
+    embedded: false
   }
 )
 

@@ -15,6 +15,47 @@
   &:hover {
     border-color: var(--el-border-color-dark);
   }
+
+  &.is-context {
+    display: block;
+    width: 100%;
+    height: auto;
+    margin-left: 0;
+    overflow: visible;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+  }
+}
+
+.ide-context-dropdown {
+  display: block;
+  width: 100%;
+}
+
+.ide-context-trigger {
+  @include btn-reset;
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr) 12px;
+  align-items: center;
+  gap: 7px;
+  width: 100%;
+  min-height: 28px;
+  padding: 4px 7px;
+  border-radius: $radius-sm;
+  color: var(--el-text-color-regular);
+  font-size: 11px;
+  text-align: left;
+
+  &:hover:not(:disabled) {
+    color: var(--el-color-primary);
+    background: var(--el-fill-color-light);
+  }
+
+  &:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
 }
 
 .ide-chip {

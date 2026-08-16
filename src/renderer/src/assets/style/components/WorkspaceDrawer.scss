@@ -1,0 +1,124 @@
+.workspace-drawer {
+  display: flex;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  flex-direction: column;
+  background: var(--el-bg-color);
+}
+
+.workspace-tabs {
+  display: flex;
+  align-items: stretch;
+  height: 32px;
+  min-width: 0;
+  border-bottom: 1px solid var(--el-border-color);
+  background: var(--el-bg-color-overlay);
+  flex-shrink: 0;
+  @include ui-font;
+}
+
+.workspace-file-tabs {
+  display: flex;
+  min-width: 0;
+  overflow-x: auto;
+  flex: 1;
+  @include hide-scrollbar;
+}
+
+.workspace-tab {
+  @include btn-reset;
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  min-width: 0;
+  height: 32px;
+  padding: 0 9px;
+  border-right: 1px solid var(--el-border-color-lighter);
+  color: var(--el-text-color-secondary);
+  font-size: 10px;
+  white-space: nowrap;
+
+  &::after {
+    content: '';
+    position: absolute;
+    right: 0;
+    bottom: 0;
+    left: 0;
+    height: 2px;
+    background: transparent;
+  }
+
+  &:hover {
+    color: var(--el-text-color-primary);
+    background: var(--el-fill-color-light);
+  }
+
+  &.is-active {
+    color: var(--el-text-color-primary);
+    background: var(--el-bg-color);
+
+    &::after {
+      background: var(--el-color-primary);
+    }
+  }
+
+  > span {
+    min-width: 0;
+    max-width: 118px;
+    @include ellipsis;
+  }
+
+  > i {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 15px;
+    height: 15px;
+    border-radius: 3px;
+    font-style: normal;
+
+    &:hover {
+      color: var(--el-color-danger);
+      background: color-mix(in srgb, var(--el-color-danger) 10%, transparent);
+    }
+  }
+}
+
+.workspace-tab-fixed {
+  flex-shrink: 0;
+}
+
+.workspace-file-tab {
+  flex: 0 1 145px;
+  justify-content: flex-start;
+}
+
+.workspace-collapse {
+  @include btn-reset;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 32px;
+  margin-left: auto;
+  border-left: 1px solid var(--el-border-color-lighter);
+  color: var(--el-text-color-secondary);
+  flex-shrink: 0;
+
+  &:hover {
+    color: var(--el-text-color-primary);
+    background: var(--el-fill-color-light);
+  }
+}
+
+.workspace-drawer-content {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}

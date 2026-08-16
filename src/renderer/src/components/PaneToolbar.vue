@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
-import { Bot, Folder, Globe, GripVertical, Server } from 'lucide-vue-next'
+import { Bot, Files, Folder, Globe, GripVertical, Server } from 'lucide-vue-next'
 import BranchSelector from './toolbar/BranchSelector.vue'
 import WorktreePanel from './toolbar/WorktreePanel.vue'
 import GitOpsButtons from './toolbar/GitOpsButtons.vue'
@@ -26,12 +26,15 @@ const props = defineProps<{
   cwd: string | undefined
   isRemote?: boolean
   remoteLabel?: string
+  sidecarOpen?: boolean
+  activeTool?: 'files' | 'file' | 'browser'
 }>()
 
 const emit = defineEmits<{
   worktreeCreated: [path: string, placement: WorktreePlacement]
   manageTasks: [cwd?: string, newDraft?: boolean]
   toggleAgentSessions: []
+  toggleFiles: []
   toggleBrowser: []
   paneDragStart: []
 }>()
@@ -243,7 +246,18 @@ async function onConflictDetected(): Promise<void> {
 
     <div class="pane-toolbar-section pane-action-section">
       <button
+        v-if="!props.isRemote"
+        class="files-btn"
+        :class="{ 'is-active': props.sidecarOpen && props.activeTool !== 'browser' }"
+        title="文件"
+        aria-label="文件"
+        @click="emit('toggleFiles')"
+      >
+        <Files :size="14" />
+      </button>
+      <button
         class="browser-btn"
+        :class="{ 'is-active': props.sidecarOpen && props.activeTool === 'browser' }"
         title="内置浏览器"
         aria-label="内置浏览器"
         @click="emit('toggleBrowser')"

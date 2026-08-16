@@ -29,7 +29,11 @@ import type {
   AgentSessionInfo,
   SshProfile,
   BrowserResourceProxyConfig,
-  ShellOption
+  ShellOption,
+  FileBrowserEntry,
+  FileBrowserPreview,
+  FileBrowserChangePayload,
+  FileGitStatus
 } from '@shared/types'
 
 // API 暴露给 renderer 的桥接对象。每个方法对应 main 里的 ipcMain.handle / send。
@@ -228,10 +232,41 @@ const api = {
 
   // ---- IDE + file manager ------------------------------------------------
   ideList: (force?: boolean) => ipcRenderer.invoke('ide-list', force) as Promise<IdeInfo[]>,
-  ideOpen: (ideId: string, cwd: string) =>
-    ipcRenderer.invoke('ide-open', ideId, cwd) as Promise<GitResult>,
+  ideOpen: (ideId: string, targetPath: string, targetKind?: 'directory' | 'file') =>
+    ipcRenderer.invoke('ide-open', ideId, targetPath, targetKind) as Promise<GitResult>,
   openFolder: (cwd: string) => ipcRenderer.invoke('open-folder', cwd) as Promise<boolean>,
   pathExists: (p: string) => ipcRenderer.invoke('path-exists', p) as Promise<boolean>,
+
+  // ---- Per-pane file browser ---------------------------------------------
+  fileBrowserList: (root: string, relativePath = '') =>
+    ipcRenderer.invoke('file-browser-list', root, relativePath) as Promise<FileBrowserEntry[]>,
+  fileBrowserSearch: (root: string, query: string) =>
+    ipcRenderer.invoke('file-browser-search', root, query) as Promise<FileBrowserEntry[]>,
+  fileBrowserPreview: (root: string, relativePath: string) =>
+    ipcRenderer.invoke('file-browser-preview', root, relativePath) as Promise<FileBrowserPreview>,
+  fileBrowserGitStatus: (root: string) =>
+    ipcRenderer.invoke('file-browser-git-status', root) as Promise<Record<string, FileGitStatus>>,
+  fileBrowserOpen: (root: string, relativePath: string) =>
+    ipcRenderer.invoke('file-browser-open', root, relativePath) as Promise<boolean>,
+  fileBrowserReveal: (root: string, relativePath: string) =>
+    ipcRenderer.invoke('file-browser-reveal', root, relativePath) as Promise<boolean>,
+  fileBrowserRelativePath: (root: string, relativePath: string, fromDirectory: string) =>
+    ipcRenderer.invoke(
+      'file-browser-relative-path',
+      root,
+      relativePath,
+      fromDirectory
+    ) as Promise<string>,
+  fileBrowserWatchStart: (paneId: string, root: string) =>
+    ipcRenderer.invoke('file-browser-watch-start', paneId, root) as Promise<void>,
+  fileBrowserWatchStop: (paneId: string) =>
+    ipcRenderer.invoke('file-browser-watch-stop', paneId) as Promise<void>,
+  onFileBrowserChanged: (cb: (payload: FileBrowserChangePayload) => void) => {
+    const listener = (_event: IpcRendererEvent, payload: FileBrowserChangePayload): void =>
+      cb(payload)
+    ipcRenderer.on('file-browser-changed', listener)
+    return () => ipcRenderer.removeListener('file-browser-changed', listener)
+  },
 
   // ---- Browser ------------------------------------------------------------
   browserWillOpen: () => ipcRenderer.send('browser-will-open'),
