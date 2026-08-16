@@ -21,7 +21,7 @@ import {
   FolderGit2,
   SquareTerminal
 } from 'lucide-vue-next'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import TerminalView from './components/Terminal.vue'
 import TasksDrawer from './components/TasksDrawer.vue'
 import AgentSessionsDrawer from './components/AgentSessionsDrawer.vue'
@@ -505,12 +505,51 @@ const openUnifiedAgentSessions = (): void => {
   showAgentSessions.value = !showAgentSessions.value
 }
 
-const openAgentSession = async (session: AgentSessionInfo): Promise<void> => {
+const confirmStopForAgentSession = async (
+  paneId: string,
+  session: AgentSessionInfo
+): Promise<boolean> => {
+  try {
+    await ElMessageBox.confirm(
+      `该终端中有正在执行的任务。是否终止当前任务并打开“${session.title}”？`,
+      '打开 Agent 会话',
+      {
+        confirmButtonText: '终止并打开',
+        cancelButtonText: '取消',
+        type: 'warning'
+      }
+    )
+  } catch {
+    return false
+  }
+
+  try {
+    const stopped = await window.api.ptyStopRunningProcess(paneId)
+    if (!stopped) ElMessage.error('当前任务未能终止')
+    return stopped
+  } catch {
+    ElMessage.error('终止当前任务失败')
+    return false
+  }
+}
+
+const openAgentSession = async (
+  session: AgentSessionInfo,
+  sourcePaneId?: string
+): Promise<void> => {
   const targetCwd = normPath(session.cwd)
   const panes = layoutResult.value.panes
   const candidates = targetCwd
     ? panes.filter((pane) => normPath(paneCwdFor(pane.id)) === targetCwd)
     : []
+
+  const sourcePane = sourcePaneId ? panes.find((pane) => pane.id === sourcePaneId) : undefined
+  if (sourcePane) {
+    const busy = await window.api.ptyHasRunningProcess(sourcePane.id)
+    if (busy && !(await confirmStopForAgentSession(sourcePane.id, session))) return
+    await runCommandInPane(sourcePane.id, session.command)
+    return
+  }
 
   for (const pane of candidates) {
     const busy = await window.api.ptyHasRunningProcess(pane.id)
@@ -520,13 +559,22 @@ const openAgentSession = async (session: AgentSessionInfo): Promise<void> => {
     }
   }
 
-  const splitFrom = candidates[0]?.id || activeId.value || panes[0]?.id || null
+  if (candidates.length) {
+    const target = candidates.find((pane) => pane.id === activeId.value) || candidates[0]
+    if (!(await confirmStopForAgentSession(target.id, session))) return
+    await runCommandInPane(target.id, session.command)
+    return
+  }
+
+  const splitFrom = activeId.value || panes[0]?.id || null
   if (!splitFrom) return
   const splitCwd = session.cwd || paneCwdFor(splitFrom)
   const newPaneId = onSplit(splitFrom, 'row', splitCwd) || onSplit(splitFrom, 'column', splitCwd)
   if (newPaneId) {
     await runCommandInPane(newPaneId, session.command)
   } else {
+    const busy = await window.api.ptyHasRunningProcess(splitFrom)
+    if (busy && !(await confirmStopForAgentSession(splitFrom, session))) return
     await runCommandInPane(splitFrom, session.command)
   }
 }

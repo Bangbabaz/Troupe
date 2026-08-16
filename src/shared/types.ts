@@ -135,7 +135,7 @@ export interface CommitInfo {
    * 包含该 commit 的所有分支(本地 + 远程)short name 列表,如 ['main', 'origin/main', 'feat/x']。
    * 由 git-commit-branches IPC 在 commits 加载完成后异步注入,首次拿到 CommitInfo
    * 时该字段为 undefined。前端渲染时通常会减去已经在 `refs` 里展示过的分支名,
-   * 余下作为"包含于"行展示 —— 避免和 decoration 标签重复。
+   * 再把余下分支放进提交详情的"包含于"信息中,避免和 decoration 标签重复。
    */
   branches?: string[]
 }

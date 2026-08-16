@@ -153,6 +153,8 @@ const api = {
     ipcRenderer.invoke('pty-get-cwd', paneId) as Promise<string | null>,
   ptyHasRunningProcess: (paneId: string) =>
     ipcRenderer.invoke('pty-has-running-process', paneId) as Promise<boolean>,
+  ptyStopRunningProcess: (paneId: string) =>
+    ipcRenderer.invoke('pty-stop-running-process', paneId) as Promise<boolean>,
   onPtyData: (paneId: string, cb: (data: string, acknowledge: () => void) => void) => {
     const listener = (_event: IpcRendererEvent, payload: PtyDataPayload): void => {
       if (payload && payload.paneId === paneId) {

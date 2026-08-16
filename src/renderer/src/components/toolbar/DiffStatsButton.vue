@@ -46,15 +46,19 @@ async function openDiff(): Promise<void> {
 </script>
 
 <template>
-  <el-tooltip v-if="diffStats.files" content="查看改动 (diff)" placement="bottom" :show-after="300">
-    <button class="diff-stats" @click="openDiff">
-      <span v-if="diffStats.added" class="diff-added">+{{ diffStats.added }}</span>
-      <span v-if="diffStats.deleted" class="diff-deleted">-{{ diffStats.deleted }}</span>
-      <span v-if="!diffStats.added && !diffStats.deleted" class="diff-files">
-        {{ diffStats.files }} 个文件
-      </span>
-    </button>
-  </el-tooltip>
+  <button
+    v-if="diffStats.files"
+    class="diff-stats"
+    title="查看改动 (diff)"
+    aria-label="查看改动 (diff)"
+    @click="openDiff"
+  >
+    <span v-if="diffStats.added" class="diff-added">+{{ diffStats.added }}</span>
+    <span v-if="diffStats.deleted" class="diff-deleted">-{{ diffStats.deleted }}</span>
+    <span v-if="!diffStats.added && !diffStats.deleted" class="diff-files">
+      {{ diffStats.files }} 个文件
+    </span>
+  </button>
 
   <el-dialog
     v-model="showDiff"

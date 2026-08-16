@@ -242,16 +242,22 @@ async function onConflictDetected(): Promise<void> {
     <div class="pane-toolbar-spacer" />
 
     <div class="pane-toolbar-section pane-action-section">
-      <el-tooltip content="内置浏览器" placement="bottom" :show-after="300">
-        <button class="browser-btn" @click="emit('toggleBrowser')">
-          <Globe :size="14" />
-        </button>
-      </el-tooltip>
-      <el-tooltip content="Agent 会话" placement="bottom" :show-after="300">
-        <button class="session-btn" @click="emit('toggleAgentSessions')">
-          <Bot :size="14" />
-        </button>
-      </el-tooltip>
+      <button
+        class="browser-btn"
+        title="内置浏览器"
+        aria-label="内置浏览器"
+        @click="emit('toggleBrowser')"
+      >
+        <Globe :size="14" />
+      </button>
+      <button
+        class="session-btn"
+        title="Agent 会话"
+        aria-label="Agent 会话"
+        @click="emit('toggleAgentSessions')"
+      >
+        <Bot :size="14" />
+      </button>
       <IdeLauncher v-if="!props.isRemote" :pane-id="props.paneId" :cwd="props.cwd" />
     </div>
   </div>

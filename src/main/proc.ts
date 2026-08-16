@@ -83,6 +83,40 @@ export async function killProcessTree(pid: number | undefined | null): Promise<v
 }
 
 /**
+ * Kill only the descendants of a process while keeping the root alive. Terminal
+ * panes use this to stop the command running under their shell and then reuse
+ * that same shell for the next command.
+ */
+export async function killProcessDescendants(pid: number | undefined | null): Promise<void> {
+  if (!pid) return
+  if (isWindows) {
+    const descendants = await snapshotDescendantsWindows(pid)
+    await killWindowsPids(descendants)
+    return
+  }
+
+  const descendants = await snapshotDescendantsPosix(pid)
+  for (const descendant of [...descendants].reverse()) {
+    try {
+      process.kill(descendant, 'SIGTERM')
+    } catch {
+      // already exited
+    }
+  }
+
+  await new Promise<void>((resolve) => setTimeout(resolve, 150))
+  const late = await snapshotDescendantsPosix(pid)
+  for (const descendant of new Set([...descendants, ...late])) {
+    try {
+      process.kill(descendant, 0)
+      process.kill(descendant, 'SIGKILL')
+    } catch {
+      // already exited
+    }
+  }
+}
+
+/**
  * Walk the live process table once via CIM and return every descendant PID
  * of `rootPid` (children, grandchildren, …). Snapshotting the whole graph
  * in one query is dramatically faster than recursive PowerShell calls and
@@ -161,21 +195,23 @@ async function killTreeWindows(pid: number): Promise<void> {
   // 3) Kill each snapshotted descendant individually. If /T already reaped
   //    them the second taskkill is a harmless no-op (exits non-zero, which
   //    we ignore). This is what actually catches detached workers.
-  if (descendants.length) {
-    await Promise.all(
-      descendants.map(
-        (p) =>
-          new Promise<void>((resolve) => {
-            execFile(
-              'taskkill',
-              ['/pid', String(p), '/F'],
-              { windowsHide: true, timeout: 5_000 },
-              () => resolve()
-            )
-          })
-      )
+  await killWindowsPids(descendants)
+}
+
+async function killWindowsPids(pids: number[]): Promise<void> {
+  await Promise.all(
+    pids.map(
+      (pid) =>
+        new Promise<void>((resolve) => {
+          execFile(
+            'taskkill',
+            ['/pid', String(pid), '/F'],
+            { windowsHide: true, timeout: 5_000 },
+            () => resolve()
+          )
+        })
     )
-  }
+  )
 }
 
 /**

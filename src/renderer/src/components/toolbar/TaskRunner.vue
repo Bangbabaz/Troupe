@@ -115,30 +115,30 @@ const stopTask = async (id: string): Promise<void> => {
     </template>
   </el-select>
 
-  <el-tooltip
+  <button
     v-if="selectedTask"
-    :content="
+    class="run-btn"
+    :title="
       selectedTask.status === 'running' ? `重启:${selectedTask.name}` : `运行:${selectedTask.name}`
     "
-    placement="bottom"
-    :show-after="300"
+    :aria-label="
+      selectedTask.status === 'running' ? `重启:${selectedTask.name}` : `运行:${selectedTask.name}`
+    "
+    @click="runSelected"
   >
-    <button class="run-btn" @click="runSelected">
-      <RotateCw v-if="selectedTask.status === 'running'" :size="13" />
-      <Play v-else :size="13" />
-    </button>
-  </el-tooltip>
+    <RotateCw v-if="selectedTask.status === 'running'" :size="13" />
+    <Play v-else :size="13" />
+  </button>
 
-  <el-tooltip
+  <button
     v-if="runningTasks.length === 1"
-    :content="`停止:${runningTasks[0].name}`"
-    placement="bottom"
-    :show-after="300"
+    class="run-btn stop"
+    :title="`停止:${runningTasks[0].name}`"
+    :aria-label="`停止:${runningTasks[0].name}`"
+    @click="stopTask(runningTasks[0].id)"
   >
-    <button class="run-btn stop" @click="stopTask(runningTasks[0].id)">
-      <Square :size="12" />
-    </button>
-  </el-tooltip>
+    <Square :size="12" />
+  </button>
   <el-dropdown
     v-else-if="runningTasks.length > 1"
     trigger="click"
@@ -146,7 +146,7 @@ const stopTask = async (id: string): Promise<void> => {
     popper-class="task-pick-dropdown"
     @command="stopTask"
   >
-    <button class="run-btn stop" title="停止运行中的命令">
+    <button class="run-btn stop" title="停止运行中的命令" aria-label="停止运行中的命令">
       <Square :size="12" />
     </button>
     <template #dropdown>

@@ -349,7 +349,11 @@ export function useLayout(opts: UseLayoutOptions): UseLayoutReturn {
     if (!layout.value) return
     const next = removePaneFromTree(layout.value, paneId)
     if (next === null) {
-      window.close()
+      const newId = newPaneId()
+      layout.value = { type: 'pane', id: newId }
+      paneCwd.value = {}
+      paneTerminalState.value = {}
+      activeId.value = newId
       return
     }
     layout.value = next

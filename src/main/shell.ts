@@ -10,7 +10,7 @@ import { shellIntegration } from './shell-integration'
 import { getShellRuntime } from './shell-runtime'
 import { createTerminalEnvironment } from './terminal-env'
 import { AGENT_MCP_PORT, BROWSER_MCP_PORT, MCP_ACCESS_TOKEN, TERMINAL_MCP_PORT } from './mcp-config'
-import { killProcessTree } from './proc'
+import { killProcessDescendants, killProcessTree } from './proc'
 import { readSettings } from './settings'
 import { getWorkingTreeDiff, getWorkingTreeDiffStats } from './git-working-tree-diff'
 import { selectRemovableWorktreePath } from './git-worktree-path'
@@ -603,6 +603,22 @@ export async function ptyHasRunningProcess(paneId: string): Promise<boolean> {
   return false
 }
 
+export async function stopPtyRunningProcess(paneId: string): Promise<boolean> {
+  const session = sessions.get(paneId)
+  if (!session || session.disposed) return false
+
+  // Give interactive programs their normal Ctrl+C path first. Agent TUIs may
+  // consume it without exiting, so fall back to removing the child tree while
+  // preserving the pane's shell.
+  session.pty.write('\x03')
+  await new Promise<void>((resolve) => setTimeout(resolve, 300))
+  if (!(await ptyHasRunningProcess(paneId))) return true
+
+  await killProcessDescendants(session.pty.pid)
+  await new Promise<void>((resolve) => setTimeout(resolve, 100))
+  return !(await ptyHasRunningProcess(paneId))
+}
+
 /**
  * lsof 在 LANG 未设置或非 UTF-8 时，会把非 ASCII 路径字节输出为
  * 字面 \\xHH 转义文字（如 \\xe8\\xb4\\xa2 而不是 财）。此函数将
@@ -971,7 +987,7 @@ export async function gitRemoveWorktree(
  * --max-count=10000 是为了避免在巨型仓库(linux/chromium 那种十万+ commit)单条
  * rev-list 输出几 MB 拖慢 IPC;GitLogViewer 一次 PAGE=50 + 累加分页,5000 已是
  * 用户能滚到的远古,10000 留 2x 余量 —— 真触到了限制(返回的 branches 没有覆
- * 盖该 hash),前端 fallback 表现就是"包含于"那一行少了几个分支,不影响主功能。
+ * 盖该 hash),前端 fallback 表现就是详情中的"包含于"少几个分支,不影响主功能。
  */
 export async function gitCommitBranches(
   cwd: string,
@@ -1039,7 +1055,7 @@ export async function gitCommitBranches(
       })
     )
   } catch {
-    // for-each-ref 失败时返回全空 map —— 前端会把"包含于"那一行藏起来,主功能正常
+    // for-each-ref 失败时返回全空 map —— 前端会隐藏详情中的"包含于",主功能正常
   }
   return result
 }
@@ -1455,7 +1471,7 @@ export async function getFileDiff(cwd: string, file: string): Promise<DiffPayloa
 // quoting issues from arbitrary author names / subjects.
 const LOG_FIELD_SEP = '\x1f'
 const LOG_RECORD_SEP = '\x1e'
-const LOG_FORMAT = ['%H', '%h', '%an', '%ae', '%aI', '%P', '%D', '%s'].join(LOG_FIELD_SEP)
+const LOG_FORMAT = ['%H', '%h', '%aN', '%aE', '%aI', '%P', '%D', '%s'].join(LOG_FIELD_SEP)
 
 function parseRefs(raw: string): string[] {
   if (!raw) return []
@@ -1477,6 +1493,7 @@ function parseRefs(raw: string): string[] {
 export async function getCommitLog(cwd: string, opts: CommitLogOpts): Promise<CommitInfo[]> {
   const args = [
     'log',
+    '--use-mailmap',
     `--pretty=format:${LOG_RECORD_SEP}${LOG_FORMAT}`,
     // 默认 50 条 —— 大仓库一次 200 太重(包括解析 parents/refs + 渲染),
     // 滚动加载更顺。caller 可以传 limit 覆盖。
@@ -1538,7 +1555,13 @@ export async function getCommitDetail(cwd: string, hash: string): Promise<Commit
   // controlled --flag-shaped string into `git show`.
   if (!/^[0-9a-f]{4,64}$/i.test(hash)) return null
   try {
-    const headArgs = ['log', '-1', `--pretty=format:${LOG_FORMAT}${LOG_FIELD_SEP}%b`, hash]
+    const headArgs = [
+      'log',
+      '-1',
+      '--use-mailmap',
+      `--pretty=format:${LOG_FORMAT}${LOG_FIELD_SEP}%b`,
+      hash
+    ]
     const { stdout: headOut } = await execFileP('git', headArgs, {
       ...GIT_OPTS,
       cwd,

@@ -29,6 +29,7 @@ import {
   getCurrentDir,
   getPtyCwd,
   ptyHasRunningProcess,
+  stopPtyRunningProcess,
   getGitInfo,
   getGitBranches,
   getRepoName,
@@ -836,6 +837,9 @@ app.whenReady().then(() => {
 
   ipcMain.handle('pty-has-running-process', (_event, paneId: string) =>
     ptyHasRunningProcess(paneId)
+  )
+  ipcMain.handle('pty-stop-running-process', (_event, paneId: string) =>
+    stopPtyRunningProcess(paneId)
   )
 
   // Background tasks

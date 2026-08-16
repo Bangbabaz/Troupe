@@ -374,9 +374,15 @@ function startSidebarDrag(e: MouseEvent): void {
   startColumnDrag('col-resize', move)
 }
 
-const gridStyle = computed(() => ({
-  gridTemplateColumns: `3.2em ${midRatio.value * 100}fr 3.2em ${(1 - midRatio.value) * 100}fr`
-}))
+const gridStyle = (rowCount: number): Record<string, string> => ({
+  gridTemplateColumns: `3.2em ${midRatio.value * 100}fr 3.2em ${(1 - midRatio.value) * 100}fr`,
+  gridTemplateRows: `repeat(${Math.max(1, rowCount)}, auto)`
+})
+
+const sideStyle = (side: 'old' | 'new', rowCount: number): Record<string, string> => ({
+  gridColumn: side === 'old' ? '1 / span 2' : '3 / span 2',
+  gridRow: `1 / span ${Math.max(1, rowCount)}`
+})
 
 const splitterStyle = computed(() => ({
   left: `calc(3.2em + (100% - 6.4em) * ${midRatio.value})`
@@ -434,24 +440,33 @@ function startMidDrag(e: MouseEvent): void {
         <div v-if="f.binary" class="dv-binary">二进制文件，不显示差异</div>
         <div v-else-if="!f.rows.length" class="dv-binary">无文本差异</div>
         <div v-else class="dv-grid-wrap">
-          <div class="dv-grid" :style="gridStyle">
-            <template v-for="(r, ri) in f.rows" :key="ri">
-              <div v-if="r.kind === 'hunk'" class="dv-hunk">{{ r.text }}</div>
-              <template v-if="r.kind === 'pair'">
-                <div class="dv-num" :class="r.left.kind">{{ r.left.num ?? '' }}</div>
-                <div
-                  class="dv-code"
-                  :class="r.left.kind"
-                  v-html="lineHtml('old', f, r.left.num, r.left.text)"
-                ></div>
-                <div class="dv-num" :class="r.right.kind">{{ r.right.num ?? '' }}</div>
-                <div
-                  class="dv-code"
-                  :class="r.right.kind"
-                  v-html="lineHtml('new', f, r.right.num, r.right.text)"
-                ></div>
+          <div class="dv-grid" :style="gridStyle(f.rows.length)">
+            <div class="dv-side" :style="sideStyle('old', f.rows.length)">
+              <template v-for="(r, ri) in f.rows" :key="`old-${ri}`">
+                <div v-if="r.kind === 'hunk'" class="dv-hunk">{{ r.text }}</div>
+                <template v-else>
+                  <div class="dv-num" :class="r.left.kind">{{ r.left.num ?? '' }}</div>
+                  <div
+                    class="dv-code"
+                    :class="r.left.kind"
+                    v-html="lineHtml('old', f, r.left.num, r.left.text)"
+                  ></div>
+                </template>
               </template>
-            </template>
+            </div>
+            <div class="dv-side" :style="sideStyle('new', f.rows.length)">
+              <template v-for="(r, ri) in f.rows" :key="`new-${ri}`">
+                <div v-if="r.kind === 'hunk'" class="dv-hunk">{{ r.text }}</div>
+                <template v-else>
+                  <div class="dv-num" :class="r.right.kind">{{ r.right.num ?? '' }}</div>
+                  <div
+                    class="dv-code"
+                    :class="r.right.kind"
+                    v-html="lineHtml('new', f, r.right.num, r.right.text)"
+                  ></div>
+                </template>
+              </template>
+            </div>
           </div>
           <!-- Absolute splitter overlay positioned at the column-2/3 boundary.
                Pointer events are picked up only on the narrow drag handle to
@@ -623,6 +638,16 @@ function startMidDrag(e: MouseEvent): void {
   grid-template-columns: 3.2em minmax(0, 1fr) 3.2em minmax(0, 1fr);
   font-size: 12px;
   line-height: 1.5;
+}
+
+/* Keep each side contiguous in the DOM so native text selection cannot cross
+   into the opposite side. Both nested grids reuse the outer row tracks, which
+   preserves line-by-line alignment when either side wraps. */
+.dv-side {
+  display: grid;
+  grid-template-columns: subgrid;
+  grid-template-rows: subgrid;
+  min-width: 0;
 }
 
 /* Vertical splitter pinned to the column-2/3 boundary. Wider hit area than

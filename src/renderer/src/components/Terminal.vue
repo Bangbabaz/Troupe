@@ -91,7 +91,7 @@ const emit = defineEmits<{
   (e: 'focusNeighbor', dir: 'up' | 'down' | 'left' | 'right'): void
   (e: 'openSettings'): void
   (e: 'manageTasks', cwd?: string, newDraft?: boolean): void
-  (e: 'openAgentSession', session: AgentSessionInfo): void
+  (e: 'openAgentSession', session: AgentSessionInfo, paneId: string): void
   (e: 'connectSsh', paneId: string, profileId: string): void
   (e: 'manageSsh', paneId: string): void
 }>()
@@ -708,7 +708,7 @@ const runQuickCommand = (command: string, execute: boolean): void => {
 
 const openAgentSession = (session: AgentSessionInfo): void => {
   agentSessionsOpen.value = false
-  emit('openAgentSession', session)
+  emit('openAgentSession', session, props.paneId)
 }
 
 defineExpose({ terminal, fitAddon, runQuickCommand })

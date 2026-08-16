@@ -335,14 +335,12 @@ defineExpose({ openWorktreeDialog })
 </script>
 
 <template>
-  <el-tooltip content="新建工作树" placement="bottom" :show-after="300">
-    <button class="wt-btn" @click="openWorktreeDialog()"><Plus :size="13" /></button>
-  </el-tooltip>
-  <el-tooltip content="管理工作树" placement="bottom" :show-after="300">
-    <button class="wt-btn icon" @click="openWtManage">
-      <FolderGit2 :size="13" />
-    </button>
-  </el-tooltip>
+  <button class="wt-btn" title="新建工作树" aria-label="新建工作树" @click="openWorktreeDialog()">
+    <Plus :size="13" />
+  </button>
+  <button class="wt-btn icon" title="管理工作树" aria-label="管理工作树" @click="openWtManage">
+    <FolderGit2 :size="13" />
+  </button>
 
   <el-dialog v-model="showWorktreeDialog" title="新建工作树" width="440px" class="wt-dialog">
     <div class="wt-form">

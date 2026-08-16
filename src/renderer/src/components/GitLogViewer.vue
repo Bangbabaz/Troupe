@@ -398,7 +398,7 @@ type Decoration = { kind: 'head' | 'branch' | 'remote' | 'tag'; label: string }
 /**
  * 把 commit.refs 里展示过的分支名归一成 Set,供 extraBranches 做差集 ——
  * 'HEAD -> main' 拆出 'main';'tag: x'/'HEAD'/'origin/HEAD' 不算分支跳过。
- * 这样"包含于"那一行不会和顶上 decoration 标签里已经亮的分支重复显示。
+ * 这样详情底部的"包含于"信息不会和 decoration 标签里已经展示的分支重复。
  */
 function refsAsBranchSet(refs: string[]): Set<string> {
   const set = new Set<string>()
@@ -417,6 +417,11 @@ function extraBranches(c: CommitInfo): string[] {
   const ignore = refsAsBranchSet(c.refs)
   return c.branches.filter((b) => !ignore.has(b))
 }
+
+const selectedExtraBranches = computed(() => {
+  const selected = commits.value.find((commit) => commit.hash === selectedHash.value)
+  return selected ? extraBranches(selected) : []
+})
 
 function decorate(refs: string[]): Decoration[] {
   const out: Decoration[] = []
@@ -591,16 +596,6 @@ const fileStatusLabel = (s: FilePatch['status']): string =>
                   >{{ d.label }}</span
                 >
               </div>
-              <div v-if="extraBranches(c).length" class="gl-row-branches">
-                <span class="gl-branches-label">包含于</span>
-                <span
-                  v-for="b in extraBranches(c)"
-                  :key="b"
-                  class="gl-ref gl-ref-contained"
-                  :title="b"
-                  >{{ b }}</span
-                >
-              </div>
             </div>
           </button>
           <button v-if="hasMore" class="gl-load-more" :disabled="loadingMore" @click="loadMore">
@@ -699,6 +694,16 @@ const fileStatusLabel = (s: FilePatch['status']): string =>
                   class="gl-ref"
                   :class="`gl-ref-${d.kind}`"
                   >{{ d.label }}</span
+                >
+              </div>
+              <div v-if="selectedExtraBranches.length" class="gl-detail-refs">
+                <span class="gl-branches-label">包含于</span>
+                <span
+                  v-for="branch in selectedExtraBranches"
+                  :key="branch"
+                  class="gl-ref gl-ref-contained"
+                  :title="branch"
+                  >{{ branch }}</span
                 >
               </div>
             </div>
@@ -923,16 +928,6 @@ const fileStatusLabel = (s: FilePatch['status']): string =>
 .gl-row-refs {
   display: flex;
   flex-wrap: wrap;
-  gap: 4px;
-  margin-top: 2px;
-}
-
-// "包含于"那一行 —— 列出 ref decoration 没出现的分支(本 commit 是哪些分支的祖先)。
-// 比 decoration 弱化:用 fill 灰底 + secondary text,不抢主行的视觉重点。
-.gl-row-branches {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
   gap: 4px;
   margin-top: 2px;
 }

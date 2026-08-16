@@ -51,23 +51,20 @@ const mergeBadgeVisible = computed(() => {
 </script>
 
 <template>
-  <el-tooltip content="提交历史" placement="bottom" :show-after="300">
-    <button class="wt-btn icon" @click="showLog = true">
-      <History :size="13" />
-    </button>
-  </el-tooltip>
+  <button class="wt-btn icon" title="提交历史" aria-label="提交历史" @click="showLog = true">
+    <History :size="13" />
+  </button>
 
-  <el-tooltip
+  <button
     v-if="mergeBadgeVisible"
-    :content="mergeBadgeLabel"
-    placement="bottom"
-    :show-after="300"
+    class="merge-badge"
+    :title="mergeBadgeLabel"
+    :aria-label="mergeBadgeLabel"
+    @click="showMerge = true"
   >
-    <button class="merge-badge" @click="showMerge = true">
-      <GitMerge :size="12" />
-      <span class="merge-badge-count">{{ mergeStatus?.conflicts.length || 0 }}</span>
-    </button>
-  </el-tooltip>
+    <GitMerge :size="12" />
+    <span class="merge-badge-count">{{ mergeStatus?.conflicts.length || 0 }}</span>
+  </button>
 
   <el-dialog
     v-model="showMerge"

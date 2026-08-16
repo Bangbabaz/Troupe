@@ -60,53 +60,49 @@ const onPickIde = async (cmd: string): Promise<void> => {
 
 <template>
   <div class="ide-group">
-    <el-tooltip
-      :content="selectedIde ? `在 ${selectedIde.name} 中打开` : '在文件管理器中打开'"
-      placement="bottom"
-      :show-after="300"
+    <button
+      class="ide-chip"
+      :class="{ 'has-real-icon': !!selectedIde?.iconDataUrl }"
+      :disabled="ideLoading"
+      :title="selectedIde ? `在 ${selectedIde.name} 中打开` : '在文件管理器中打开'"
+      :aria-label="selectedIde ? `在 ${selectedIde.name} 中打开` : '在文件管理器中打开'"
+      :style="
+        selectedIde?.iconDataUrl
+          ? undefined
+          : selectedIdeIcon
+            ? { color: selectedIdeIcon.color }
+            : undefined
+      "
+      @click="openSelectedIde"
     >
-      <button
-        class="ide-chip"
-        :class="{ 'has-real-icon': !!selectedIde?.iconDataUrl }"
-        :disabled="ideLoading"
-        :style="
-          selectedIde?.iconDataUrl
-            ? undefined
-            : selectedIdeIcon
-              ? { color: selectedIdeIcon.color }
-              : undefined
-        "
-        @click="openSelectedIde"
+      <img
+        v-if="selectedIde?.iconDataUrl"
+        class="ide-chip-img"
+        :src="selectedIde.iconDataUrl"
+        alt=""
+        draggable="false"
+      />
+      <SquareTerminal v-else-if="selectedIde?.id === 'os-terminal'" :size="12" />
+      <svg
+        v-else-if="selectedIdeIcon && selectedIdeIcon.path"
+        class="ide-chip-svg"
+        viewBox="0 0 24 24"
+        aria-hidden="true"
       >
-        <img
-          v-if="selectedIde?.iconDataUrl"
-          class="ide-chip-img"
-          :src="selectedIde.iconDataUrl"
-          alt=""
-          draggable="false"
-        />
-        <SquareTerminal v-else-if="selectedIde?.id === 'os-terminal'" :size="12" />
-        <svg
-          v-else-if="selectedIdeIcon && selectedIdeIcon.path"
-          class="ide-chip-svg"
-          viewBox="0 0 24 24"
-          aria-hidden="true"
-        >
-          <path :d="selectedIdeIcon.path" fill="currentColor" />
-        </svg>
-        <span v-else-if="selectedIdeIcon" class="ide-chip-letter">
-          {{ selectedIdeIcon.letter }}
-        </span>
-        <FolderClosed v-else :size="13" />
-      </button>
-    </el-tooltip>
+        <path :d="selectedIdeIcon.path" fill="currentColor" />
+      </svg>
+      <span v-else-if="selectedIdeIcon" class="ide-chip-letter">
+        {{ selectedIdeIcon.letter }}
+      </span>
+      <FolderClosed v-else :size="13" />
+    </button>
     <el-dropdown
       trigger="click"
       placement="bottom-end"
       popper-class="ide-pick-dropdown"
       @command="onPickIde"
     >
-      <button class="ide-caret" :disabled="ideLoading" title="切换 IDE">
+      <button class="ide-caret" :disabled="ideLoading" title="切换 IDE" aria-label="切换 IDE">
         <ChevronDown :size="12" />
       </button>
       <template #dropdown>

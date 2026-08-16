@@ -19,8 +19,7 @@ import {
   FolderOpen,
   Terminal as TerminalIcon,
   ChevronDown,
-  ChevronRight,
-  Activity
+  ChevronRight
 } from 'lucide-vue-next'
 import SearchOverlay from './SearchOverlay.vue'
 import { useTheme } from '../composables/useTheme'
@@ -456,7 +455,6 @@ function closeLogSearch(): void {
            that overlaps the OS title-bar strip stays clickable. -->
       <header class="tasks-header">
         <div class="tasks-header-brand">
-          <span class="tasks-header-icon"><Activity :size="15" /></span>
           <div>
             <div class="tasks-header-title">任务控制</div>
             <div class="tasks-header-subtitle">
@@ -620,19 +618,6 @@ function closeLogSearch(): void {
 .tasks-header-brand {
   display: flex;
   align-items: center;
-  gap: 9px;
-}
-
-.tasks-header-icon {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 30px;
-  height: 30px;
-  border: 1px solid color-mix(in srgb, var(--el-color-success) 35%, transparent);
-  border-radius: 8px;
-  background: color-mix(in srgb, var(--el-color-success) 10%, transparent);
-  color: var(--el-color-success);
 }
 
 .tasks-header-title {
@@ -970,7 +955,12 @@ function closeLogSearch(): void {
 .log-body {
   flex: 1;
   min-height: 0;
-  padding: 8px 10px;
+  overflow: hidden;
+
+  :deep(.xterm) {
+    height: 100%;
+    padding: 8px 10px 16px;
+  }
 }
 
 .log-search-pos {
