@@ -1783,6 +1783,10 @@ onUnmounted(() => {
   }
 }
 
+.title-bar button svg {
+  pointer-events: none;
+}
+
 .tb-close:hover {
   background: var(--el-color-danger);
   color: #fff;

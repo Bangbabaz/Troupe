@@ -950,16 +950,19 @@ function closeLogSearch(): void {
   min-height: 0;
   display: flex;
   flex-direction: column;
+  background: var(--el-bg-color);
 }
 
 .log-body {
   flex: 1;
   min-height: 0;
   overflow: hidden;
+  background: var(--el-bg-color);
 
   :deep(.xterm) {
     height: 100%;
-    padding: 8px 10px 16px;
+    padding: 6px 8px;
+    background: var(--el-bg-color);
   }
 }
 
