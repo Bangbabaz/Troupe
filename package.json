@@ -1,6 +1,6 @@
 {
   "name": "troupe",
-  "version": "0.7.0",
+  "version": "0.7.1",
   "description": "Git + tmux 风格的终端模拟器，支持分屏、分支切换与工作树管理",
   "main": "./out/main/index.js",
   "author": "Bangbabaz",
