@@ -29,7 +29,7 @@ const DEFAULTS: Settings = {
   autoUpdate: true,
   quickCommands: [],
   sshProfiles: [],
-  sshDirectoryPermissions: {},
+  sshServerPermissions: {},
   sshCommandPermissions: []
 }
 

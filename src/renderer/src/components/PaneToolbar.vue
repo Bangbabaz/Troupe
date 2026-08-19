@@ -1,21 +1,39 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
-import { Bot, Files, Folder, Globe, GripVertical, Server } from 'lucide-vue-next'
+import {
+  Bot,
+  Ellipsis,
+  File,
+  FileDiff,
+  Folder,
+  FolderGit2,
+  GitBranchPlus,
+  GitMerge,
+  Globe,
+  GripVertical,
+  History,
+  Play,
+  Plus,
+  RotateCw,
+  Server,
+  Settings2,
+  Square
+} from 'lucide-vue-next'
 import BranchSelector from './toolbar/BranchSelector.vue'
 import WorktreePanel from './toolbar/WorktreePanel.vue'
 import GitOpsButtons from './toolbar/GitOpsButtons.vue'
 import DiffStatsButton from './toolbar/DiffStatsButton.vue'
 import TaskRunner from './toolbar/TaskRunner.vue'
 import IdeLauncher from './toolbar/IdeLauncher.vue'
-import type { BranchInfo, DiffStats, MergeStatus } from '@shared/types'
+import { useTasks } from '../composables/useTasks'
+import type { BranchInfo, DiffStats, MergeStatus, TaskMeta } from '@shared/types'
 
 // 工具栏协调器。集中管理 git 状态(branches / currentBranch / diffStats /
 // mergeStatus),通过 props 下发到子组件;子组件触发 git 操作后 emit('changed'),
 // 由本组件统一刷新。
 //
 // 改造关键点:
-//   1. 非 git 目录也渲染工具栏 —— 仅隐藏 BranchSelector / WorktreePanel /
-//      GitOpsButtons,TaskRunner + IdeLauncher 与 git 无关,任意 cwd 都可用。
+//   1. 非 git 目录也渲染工具栏 —— 仅隐藏 BranchSelector 与 git 菜单项。
 //   2. refresh() 节流:Terminal focus 频繁触发,200ms 内合并多次。
 //   3. 快速刷新只查分支头 / diff / 冲突；完整刷新才重扫分支列表。
 
@@ -46,11 +64,33 @@ const currentBranch = ref<string | null>(null)
 const branches = ref<BranchInfo[]>([])
 const diffStats = ref<DiffStats>({ files: 0, added: 0, deleted: 0 })
 const mergeStatus = ref<MergeStatus | null>(null)
+const { allTasks, selectPaneTask } = useTasks()
 
 const locationName = computed(() => {
   const normalized = (props.cwd || '').replace(/\\/g, '/').replace(/\/+$/, '')
   return normalized.split('/').filter(Boolean).pop() || 'Terminal'
 })
+
+function normalizedPath(path: string | undefined): string {
+  if (!path) return ''
+  let normalized = path.replace(/\\/g, '/').replace(/\/+$/, '')
+  if (/^[a-zA-Z]:/.test(normalized)) normalized = normalized.toLowerCase()
+  return normalized
+}
+
+const paneTasks = computed(() => {
+  if (props.isRemote) return []
+  const cwd = normalizedPath(props.cwd)
+  if (!cwd) return []
+  return allTasks.value.filter((task) => normalizedPath(task.cwd) === cwd)
+})
+
+const runningTasks = computed(() => paneTasks.value.filter((task) => task.status === 'running'))
+const mergeStateActive = computed(
+  () =>
+    !!mergeStatus.value &&
+    (!!mergeStatus.value.inProgress || mergeStatus.value.conflicts.length > 0)
+)
 // switching / 乐观分支显示都留在 BranchSelector 内部 —— 父级不需要参与切换流程,
 // 切完只关心 refresh,通过子级 emit('changed') 触发。
 
@@ -167,6 +207,7 @@ defineExpose({ refresh: requestRefresh, refreshFast: requestFastRefresh })
 // BranchSelector 右键"新工作树"→ 父级转发到 WorktreePanel.openWorktreeDialog。
 const worktreePanelRef = ref<InstanceType<typeof WorktreePanel>>()
 const gitOpsRef = ref<InstanceType<typeof GitOpsButtons>>()
+const diffStatsRef = ref<InstanceType<typeof DiffStatsButton>>()
 
 function onWorktreeFromBranch(prefill: string): void {
   worktreePanelRef.value?.openWorktreeDialog(prefill)
@@ -180,12 +221,52 @@ async function onConflictDetected(): Promise<void> {
   await refresh('fast')
   gitOpsRef.value?.openMergePanel()
 }
+
+async function runTask(task: TaskMeta): Promise<void> {
+  if (!props.cwd) return
+  selectPaneTask(props.paneId, props.cwd, task.id)
+  await window.api.taskStart({ id: task.id })
+}
+
+async function stopTask(task: TaskMeta): Promise<void> {
+  await window.api.taskStop(task.id)
+}
+
+async function onToolMenuCommand(command: string): Promise<void> {
+  if (command === 'browser') return emit('toggleBrowser')
+  if (command === 'agent') return emit('toggleAgentSessions')
+  if (command === 'worktree:new') return worktreePanelRef.value?.openWorktreeDialog()
+  if (command === 'worktree:manage') return worktreePanelRef.value?.openWtManage()
+  if (command === 'git:history') return gitOpsRef.value?.openLogPanel()
+  if (command === 'git:merge') return gitOpsRef.value?.openMergePanel()
+  if (command === 'git:diff') return diffStatsRef.value?.openDiff()
+  if (command === 'task:new') return emit('manageTasks', props.cwd, true)
+  if (command === 'task:manage') return emit('manageTasks', props.cwd)
+
+  const runPrefix = 'task:run:'
+  const stopPrefix = 'task:stop:'
+  if (command.startsWith(runPrefix)) {
+    const task = paneTasks.value.find(
+      (candidate) => candidate.id === command.slice(runPrefix.length)
+    )
+    if (task) await runTask(task)
+  } else if (command.startsWith(stopPrefix)) {
+    const task = runningTasks.value.find(
+      (candidate) => candidate.id === command.slice(stopPrefix.length)
+    )
+    if (task) await stopTask(task)
+  }
+}
 </script>
 
 <template>
-  <!-- 工具栏 v-if 仅在 cwd 已知时渲染;不再以 isRepo 为条件,非 git 目录也展示
-       TaskRunner + IdeLauncher。 -->
-  <div v-if="props.cwd" class="pane-toolbar" @click.stop>
+  <!-- 工具栏 v-if 仅在 cwd 已知时渲染;非 git 目录也保留文件、工具菜单与 IDE。 -->
+  <div
+    v-if="props.cwd"
+    class="pane-toolbar"
+    :class="{ 'is-repo': isRepo, 'is-remote': props.isRemote }"
+    @click.stop
+  >
     <div class="pane-identity">
       <button
         class="pane-drag-handle"
@@ -210,22 +291,25 @@ async function onConflictDetected(): Promise<void> {
         @worktree-from-branch="onWorktreeFromBranch"
         @conflict-detected="onConflictDetected"
       />
-      <span class="control-divider" />
-      <WorktreePanel
-        ref="worktreePanelRef"
-        :cwd="props.cwd"
-        :branches="branches"
-        :current-branch="currentBranch"
-        @worktree-created="onWorktreeCreated"
-        @changed="requestRefresh"
-      />
-      <GitOpsButtons
-        ref="gitOpsRef"
-        :cwd="props.cwd"
-        :merge-status="mergeStatus"
-        @changed="requestRefresh"
-      />
-      <DiffStatsButton :cwd="props.cwd" :diff-stats="diffStats" />
+      <div class="pane-git-overflow-tools">
+        <WorktreePanel
+          ref="worktreePanelRef"
+          :cwd="props.cwd"
+          :branches="branches"
+          :current-branch="currentBranch"
+          @worktree-created="onWorktreeCreated"
+          @changed="requestRefresh"
+        />
+        <GitOpsButtons
+          ref="gitOpsRef"
+          :cwd="props.cwd"
+          :merge-status="mergeStatus"
+          @changed="requestRefresh"
+        />
+      </div>
+      <div class="pane-diff-tool">
+        <DiffStatsButton ref="diffStatsRef" :cwd="props.cwd" :diff-stats="diffStats" />
+      </div>
     </div>
 
     <div v-if="props.isRemote" class="remote-badge" :title="props.remoteLabel || 'SSH'">
@@ -233,7 +317,6 @@ async function onConflictDetected(): Promise<void> {
       <span>{{ props.remoteLabel || 'SSH' }}</span>
     </div>
 
-    <!-- 任务运行 / IDE 启动:无论是否 git 都显示。 -->
     <div v-if="!props.isRemote" class="pane-toolbar-section pane-task-section">
       <TaskRunner
         :pane-id="props.paneId"
@@ -253,8 +336,9 @@ async function onConflictDetected(): Promise<void> {
         aria-label="文件"
         @click="emit('toggleFiles')"
       >
-        <Files :size="14" />
+        <File :size="14" />
       </button>
+
       <button
         class="browser-btn"
         :class="{ 'is-active': props.sidecarOpen && props.activeTool === 'browser' }"
@@ -272,6 +356,102 @@ async function onConflictDetected(): Promise<void> {
       >
         <Bot :size="14" />
       </button>
+
+      <el-dropdown
+        class="pane-more-menu"
+        trigger="click"
+        placement="bottom-end"
+        popper-class="pane-tools-dropdown"
+        @command="onToolMenuCommand"
+      >
+        <button
+          class="more-btn"
+          :class="{
+            'is-active': props.sidecarOpen && props.activeTool === 'browser',
+            'has-running-task': runningTasks.length > 0,
+            'has-warning': mergeStateActive
+          }"
+          title="更多工具"
+          aria-label="更多工具"
+        >
+          <Ellipsis :size="15" />
+        </button>
+        <template #dropdown>
+          <el-dropdown-menu>
+            <el-dropdown-item command="browser">
+              <Globe :size="13" />
+              <span class="pane-tool-menu-label">内置浏览器</span>
+            </el-dropdown-item>
+            <el-dropdown-item command="agent">
+              <Bot :size="13" />
+              <span class="pane-tool-menu-label">Agent 会话</span>
+            </el-dropdown-item>
+
+            <template v-if="isRepo">
+              <el-dropdown-item divided command="worktree:new">
+                <GitBranchPlus :size="13" />
+                <span class="pane-tool-menu-label">新建工作树</span>
+              </el-dropdown-item>
+              <el-dropdown-item command="worktree:manage">
+                <FolderGit2 :size="13" />
+                <span class="pane-tool-menu-label">管理工作树</span>
+              </el-dropdown-item>
+              <el-dropdown-item command="git:history">
+                <History :size="13" />
+                <span class="pane-tool-menu-label">提交历史</span>
+              </el-dropdown-item>
+              <el-dropdown-item v-if="mergeStateActive" command="git:merge">
+                <GitMerge :size="13" />
+                <span class="pane-tool-menu-label is-danger">
+                  合并 / 冲突 ({{ mergeStatus?.conflicts.length || 0 }})
+                </span>
+              </el-dropdown-item>
+              <el-dropdown-item v-if="diffStats.files" command="git:diff">
+                <FileDiff :size="13" />
+                <span class="pane-tool-menu-label">
+                  改动 +{{ diffStats.added }} -{{ diffStats.deleted }}
+                </span>
+              </el-dropdown-item>
+            </template>
+
+            <template v-if="!props.isRemote">
+              <el-dropdown-item divided disabled class="pane-tool-menu-heading">
+                运行命令
+              </el-dropdown-item>
+              <el-dropdown-item v-if="!paneTasks.length" disabled>
+                该文件夹暂无命令
+              </el-dropdown-item>
+              <el-dropdown-item
+                v-for="task in paneTasks"
+                :key="`run:${task.id}`"
+                :command="`task:run:${task.id}`"
+              >
+                <RotateCw v-if="task.status === 'running'" :size="13" />
+                <Play v-else :size="13" />
+                <span class="pane-tool-menu-label">{{ task.name || task.command }}</span>
+                <span class="pane-tool-task-status" :class="task.status" />
+              </el-dropdown-item>
+              <el-dropdown-item
+                v-for="task in runningTasks"
+                :key="`stop:${task.id}`"
+                :command="`task:stop:${task.id}`"
+              >
+                <Square :size="12" class="pane-tool-stop-icon" />
+                <span class="pane-tool-menu-label">停止 {{ task.name || task.command }}</span>
+              </el-dropdown-item>
+              <el-dropdown-item divided command="task:new">
+                <Plus :size="13" />
+                <span class="pane-tool-menu-label">新建命令</span>
+              </el-dropdown-item>
+              <el-dropdown-item command="task:manage">
+                <Settings2 :size="13" />
+                <span class="pane-tool-menu-label">管理命令</span>
+              </el-dropdown-item>
+            </template>
+          </el-dropdown-menu>
+        </template>
+      </el-dropdown>
+
       <IdeLauncher v-if="!props.isRemote" :pane-id="props.paneId" :cwd="props.cwd" />
     </div>
   </div>

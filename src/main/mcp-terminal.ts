@@ -5,7 +5,7 @@ import {
   verifyPtyTerminalToken,
   writeSshCommand
 } from './shell'
-import { authorizeSshCommand, getSshDirectoryPolicy } from './ssh-permissions'
+import { authorizeSshCommand, getSshServerPolicy } from './ssh-permissions'
 import type { McpToolDef, McpToolResult } from './mcp-types'
 import type { PtySessionInfo } from './shell'
 
@@ -56,7 +56,7 @@ export const TERMINAL_TOOLS: McpToolDef[] = [
   {
     name: 'terminal_execute_command',
     description:
-      '向指定 SSH 终端发送一条完整命令。服务端会依据来源目录权限和命令风险强制审批；“仅本次允许”只执行当前命令，“始终允许低风险命令”会记住来源目录，但危险命令仍逐次确认。禁止换行和 NUL。',
+      '向指定 SSH 终端发送一条完整命令。服务端会依据目标服务器权限和命令风险强制审批；“仅本次允许”只执行当前命令，“始终允许低风险命令”会记住目标服务器，但危险命令仍逐次确认。禁止换行和 NUL。',
     inputSchema: {
       type: 'object',
       properties: {
@@ -159,11 +159,11 @@ export async function handleTerminalToolCall(
   if (name === 'terminal_list_ssh') {
     return textResult({
       sourceDirectory: source.directory,
-      directoryPolicy: getSshDirectoryPolicy(source.directory),
       terminals: getActiveSshSessions().map((item) => ({
         paneId: item.paneId,
         profileId: item.sshProfileId,
         label: item.sshLabel || 'SSH',
+        permissionPolicy: item.sshProfileId ? getSshServerPolicy(item.sshProfileId) : 'ask',
         outputCursor: item.outputCursor
       }))
     })
@@ -171,8 +171,8 @@ export async function handleTerminalToolCall(
 
   const target = resolveSshTarget(args?.paneId)
   if (name === 'terminal_read') {
-    if (getSshDirectoryPolicy(source.directory) === 'deny') {
-      throw new Error(`当前目录已禁止 Agent 访问 SSH：${source.directory}`)
+    if (getSshServerPolicy(target.sshProfileId!) === 'deny') {
+      throw new Error(`当前服务器已禁止 Agent 访问 SSH：${target.sshLabel}`)
     }
     return textResult({
       paneId: target.paneId,

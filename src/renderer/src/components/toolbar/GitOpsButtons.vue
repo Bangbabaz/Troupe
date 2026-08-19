@@ -25,7 +25,11 @@ function openMergePanel(): void {
   showMerge.value = true
 }
 
-defineExpose({ openMergePanel })
+function openLogPanel(): void {
+  showLog.value = true
+}
+
+defineExpose({ openMergePanel, openLogPanel })
 
 const mergeBadgeLabel = computed(() => {
   const s = props.mergeStatus

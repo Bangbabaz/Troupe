@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
-import { Bot, Clock3, RefreshCw } from 'lucide-vue-next'
+import { Clock3, RefreshCw } from 'lucide-vue-next'
 import type { AgentSessionInfo, AgentSessionProvider } from '@shared/types'
 
 const props = defineProps<{
@@ -97,7 +97,6 @@ onMounted(() => {
   <aside v-if="modelValue" class="agent-sessions-panel">
     <header class="agent-panel-header">
       <div class="agent-panel-heading">
-        <span class="agent-panel-icon"><Bot :size="15" /></span>
         <div>
           <div class="agent-panel-title">Agent 会话</div>
           <div class="agent-panel-subtitle">{{ filtered.length }} 个可恢复会话</div>
@@ -108,13 +107,11 @@ onMounted(() => {
       </button>
     </header>
 
-    <div class="agent-session-toolbar">
-      <el-radio-group v-model="provider" size="small" class="agent-session-provider-filter">
-        <el-radio-button value="all">全部</el-radio-button>
-        <el-radio-button value="claude">Claude</el-radio-button>
-        <el-radio-button value="codex">Codex</el-radio-button>
-      </el-radio-group>
-    </div>
+    <el-radio-group v-model="provider" size="small" class="agent-session-provider-filter">
+      <el-radio-button value="all">全部</el-radio-button>
+      <el-radio-button value="claude">Claude</el-radio-button>
+      <el-radio-button value="codex">Codex</el-radio-button>
+    </el-radio-group>
 
     <div v-if="loading && sessions.length === 0" class="agent-session-empty">读取中...</div>
     <div v-else-if="filtered.length === 0" class="agent-session-empty">没有会话</div>
@@ -168,20 +165,7 @@ onMounted(() => {
 .agent-panel-heading {
   display: flex;
   align-items: center;
-  gap: 9px;
   min-width: 0;
-}
-
-.agent-panel-icon {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 30px;
-  height: 30px;
-  border: 1px solid color-mix(in srgb, var(--el-color-primary) 35%, transparent);
-  border-radius: 8px;
-  background: color-mix(in srgb, var(--el-color-primary) 10%, transparent);
-  color: var(--el-color-primary);
 }
 
 .agent-panel-title {
@@ -212,16 +196,10 @@ onMounted(() => {
   }
 }
 
-.agent-session-toolbar {
-  margin-bottom: 9px;
-  padding: 3px;
-  border: 1px solid var(--el-border-color-light);
-  border-radius: 8px;
-  background: var(--el-bg-color);
-}
-
 .agent-session-provider-filter {
   width: 100%;
+  margin-bottom: 9px;
+  flex-shrink: 0;
 
   :deep(.el-radio-button) {
     flex: 1;

@@ -52,7 +52,7 @@ const dangerousCommands = [
 
 function loadPermissions(initialSettings = {}) {
   const state = {
-    sshDirectoryPermissions: {},
+    sshServerPermissions: {},
     sshCommandPermissions: [],
     ...initialSettings
   }
@@ -69,14 +69,15 @@ function loadPermissions(initialSettings = {}) {
   return { permissions, state }
 }
 
-function approvalRequest(command) {
+function approvalRequest(command, overrides = {}) {
   return {
     sourceDirectory: process.cwd(),
     targetPaneId: 'ssh-pane',
     sshProfileId: 'profile-1',
     sshTarget: 'user@example.test',
     sshLabel: 'test host',
-    command
+    command,
+    ...overrides
   }
 }
 
@@ -103,10 +104,10 @@ async function run() {
     assert.equal(await permissions.authorizeSshCommand(approvalRequest('pwd')), 'once')
     assert.equal(await permissions.authorizeSshCommand(approvalRequest('pwd')), 'once')
     assert.equal(approvals, 2)
-    assert.deepEqual(state.sshDirectoryPermissions, {})
+    assert.deepEqual(state.sshServerPermissions, {})
   }
 
-  // Concurrent requests re-read the policy after the first approval persists it.
+  // Concurrent requests from different directories share the target server policy.
   {
     const { permissions, state } = loadPermissions()
     let approvals = 0
@@ -116,18 +117,60 @@ async function run() {
     })
     const results = await Promise.all([
       permissions.authorizeSshCommand(approvalRequest('pwd')),
-      permissions.authorizeSshCommand(approvalRequest('git status --short'))
+      permissions.authorizeSshCommand(
+        approvalRequest('git status --short', { sourceDirectory: path.dirname(process.cwd()) })
+      )
     ])
-    assert.deepEqual(results, ['directory', 'directory'])
+    assert.deepEqual(results, ['server', 'server'])
     assert.equal(approvals, 1)
-    assert.equal(state.sshDirectoryPermissions[process.cwd()], 'always_allow')
+    assert.equal(state.sshServerPermissions['profile-1'], 'always_allow')
   }
 
-  // Directory and legacy exact-command grants never suppress dangerous prompts.
+  // A grant for one server does not authorize another server.
+  {
+    const { permissions } = loadPermissions({
+      sshServerPermissions: { 'profile-1': 'always_allow' }
+    })
+    let approvals = 0
+    permissions.setSshCommandApprovalHandler(async () => {
+      approvals++
+      return 'allow_once'
+    })
+    assert.equal(
+      await permissions.authorizeSshCommand(
+        approvalRequest('pwd', {
+          sshProfileId: 'profile-2',
+          sshTarget: 'user@other.example.test',
+          sshLabel: 'other host'
+        })
+      ),
+      'once'
+    )
+    assert.equal(approvals, 1)
+  }
+
+  // A denied server is blocked without opening the approval dialog.
+  {
+    const { permissions } = loadPermissions({
+      sshServerPermissions: { 'profile-1': 'deny' }
+    })
+    let approvals = 0
+    permissions.setSshCommandApprovalHandler(async () => {
+      approvals++
+      return 'allow_once'
+    })
+    await assert.rejects(
+      permissions.authorizeSshCommand(approvalRequest('pwd')),
+      /当前服务器已禁止 Agent 操作 SSH/
+    )
+    assert.equal(approvals, 0)
+  }
+
+  // Server and legacy exact-command grants never suppress dangerous prompts.
   {
     const command = 'rm -rf /srv/app/cache'
     const { permissions } = loadPermissions({
-      sshDirectoryPermissions: { [process.cwd()]: 'always_allow' },
+      sshServerPermissions: { 'profile-1': 'always_allow' },
       sshCommandPermissions: [
         {
           id: 'legacy-rule',
@@ -151,11 +194,11 @@ async function run() {
     assert.equal(approvals, 1)
   }
 
-  // Unknown write-capable commands are conservative: a directory grant cannot bypass approval.
+  // Unknown write-capable commands are conservative: a server grant cannot bypass approval.
   {
     const command = 'cp /dev/null /srv/app/config'
     const { permissions } = loadPermissions({
-      sshDirectoryPermissions: { [process.cwd()]: 'always_allow' }
+      sshServerPermissions: { 'profile-1': 'always_allow' }
     })
     let approvals = 0
     permissions.setSshCommandApprovalHandler(async (request) => {

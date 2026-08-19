@@ -5,7 +5,7 @@ import type {
   SshCommandApprovalDecision,
   SshCommandApprovalRequest,
   SshCommandPermission,
-  SshDirectoryPolicy
+  SshServerPolicy
 } from '@shared/types'
 
 type ApprovalHandler = (request: SshCommandApprovalRequest) => Promise<SshCommandApprovalDecision>
@@ -27,12 +27,9 @@ export function setSshPermissionsChangedHandler(handler: () => void): void {
   permissionsChanged = handler
 }
 
-export function getSshDirectoryPolicy(directory: string): SshDirectoryPolicy {
-  const wanted = directoryKey(directory)
-  const entry = Object.entries(readSettings().sshDirectoryPermissions || {}).find(
-    ([configured]) => directoryKey(configured) === wanted
-  )
-  return entry?.[1] === 'always_allow' || entry?.[1] === 'deny' ? entry[1] : 'ask'
+export function getSshServerPolicy(sshProfileId: string): SshServerPolicy {
+  const policy = readSettings().sshServerPermissions?.[sshProfileId]
+  return policy === 'always_allow' || policy === 'deny' ? policy : 'ask'
 }
 
 function findSavedCommand(request: SshCommandApprovalRequest): SshCommandPermission | undefined {
@@ -46,26 +43,23 @@ function findSavedCommand(request: SshCommandApprovalRequest): SshCommandPermiss
   )
 }
 
-function rememberDirectory(directory: string): void {
-  const permissions = { ...(readSettings().sshDirectoryPermissions || {}) }
-  for (const configured of Object.keys(permissions)) {
-    if (directoryKey(configured) === directoryKey(directory)) delete permissions[configured]
-  }
-  permissions[directory] = 'always_allow'
-  updateSettings({ sshDirectoryPermissions: permissions })
+function rememberServer(sshProfileId: string): void {
+  const permissions = { ...(readSettings().sshServerPermissions || {}) }
+  permissions[sshProfileId] = 'always_allow'
+  updateSettings({ sshServerPermissions: permissions })
   flushSettings()
   permissionsChanged?.()
 }
 
 async function authorizeQueuedSshCommand(
   request: SshCommandApprovalRequest
-): Promise<'directory' | 'command' | 'once'> {
-  const directoryPolicy = getSshDirectoryPolicy(request.sourceDirectory)
-  if (directoryPolicy === 'deny') {
-    throw new Error(`当前目录已禁止 Agent 操作 SSH：${request.sourceDirectory}`)
+): Promise<'server' | 'command' | 'once'> {
+  const serverPolicy = getSshServerPolicy(request.sshProfileId)
+  if (serverPolicy === 'deny') {
+    throw new Error(`当前服务器已禁止 Agent 操作 SSH：${request.sshLabel}`)
   }
   const risk = assessSshCommandRisk(request.command)
-  if (!risk.dangerous && directoryPolicy === 'always_allow') return 'directory'
+  if (!risk.dangerous && serverPolicy === 'always_allow') return 'server'
   // Keep pre-0.7 exact-command grants working, but never let them bypass a risk prompt.
   if (!risk.dangerous && findSavedCommand(request)) return 'command'
   if (!approvalHandler) throw new Error('SSH 命令审批界面尚未就绪')
@@ -77,15 +71,15 @@ async function authorizeQueuedSshCommand(
   })
   if (decision === 'deny') throw new Error('用户拒绝了 SSH 命令')
   if (decision === 'always_allow') {
-    rememberDirectory(request.sourceDirectory)
-    return risk.dangerous ? 'once' : 'directory'
+    rememberServer(request.sshProfileId)
+    return risk.dangerous ? 'once' : 'server'
   }
   return 'once'
 }
 
 export async function authorizeSshCommand(
   request: SshCommandApprovalRequest
-): Promise<'directory' | 'command' | 'once'> {
+): Promise<'server' | 'command' | 'once'> {
   const pending = approvalQueue.then(() => authorizeQueuedSshCommand(request))
   approvalQueue = pending.then(
     () => undefined,

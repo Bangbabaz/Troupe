@@ -44,7 +44,7 @@ import type {
   Settings,
   ShellOption,
   SshCommandPermission,
-  SshDirectoryPolicy,
+  SshServerPolicy,
   SshProfile
 } from '@shared/types'
 
@@ -78,7 +78,7 @@ const electronVersion = ref('')
 const appVersion = ref('')
 const quickCommands = ref<QuickCommand[]>([])
 const sshProfiles = ref<SshProfile[]>([])
-const sshDirectoryPermissions = ref<Record<string, SshDirectoryPolicy>>({})
+const sshServerPermissions = ref<Record<string, SshServerPolicy>>({})
 const sshCommandPermissions = ref<SshCommandPermission[]>([])
 const showSshDialog = ref(false)
 const sshConnecting = ref(false)
@@ -139,7 +139,7 @@ const resetShortcut = (action: string): void => {
 
 const refreshSshPermissions = async (): Promise<void> => {
   const settings = await window.api.settingsGet()
-  sshDirectoryPermissions.value = { ...(settings.sshDirectoryPermissions || {}) }
+  sshServerPermissions.value = { ...(settings.sshServerPermissions || {}) }
   sshCommandPermissions.value = Array.isArray(settings.sshCommandPermissions)
     ? settings.sshCommandPermissions
     : []
@@ -387,6 +387,7 @@ const connectSsh = async (): Promise<void> => {
     }
     const saved = await window.api.sshProfileSave(draft)
     sshProfiles.value = await window.api.sshProfilesList()
+    await refreshSshPermissions()
 
     const from = activeId.value || layoutResult.value.panes[0]?.id || null
     if (!from) return
@@ -405,6 +406,7 @@ const connectSsh = async (): Promise<void> => {
 const deleteSshProfile = async (profileId: string): Promise<void> => {
   await window.api.sshProfileDelete(profileId)
   sshProfiles.value = await window.api.sshProfilesList()
+  await refreshSshPermissions()
   if (sshDraft.value.id === profileId) {
     const next = sshProfiles.value[0]
     sshDraft.value = next ? { ...next, password: '' } : makeSshDraft()
@@ -445,41 +447,21 @@ const activeWorkspaceLabel = computed(() => {
 
 const paneCwdFor = (paneId: string): string => paneCwd.value[paneId] || cwd.value || ''
 
-const openedLocalDirectories = computed(() => {
-  const unique = new Map<string, string>()
-  for (const pane of layoutResult.value.panes) {
-    if (paneTerminalState.value[pane.id]?.kind === 'ssh') continue
-    const directory = paneCwdFor(pane.id)
-    const key = normPath(directory)
-    if (key && !unique.has(key)) unique.set(key, directory)
-  }
-  return Array.from(unique.values())
-})
+const sshServerPolicy = (profileId: string): SshServerPolicy =>
+  sshServerPermissions.value[profileId] || 'ask'
 
-const sshDirectoryPolicy = (directory: string): SshDirectoryPolicy => {
-  const key = normPath(directory)
-  const entry = Object.entries(sshDirectoryPermissions.value).find(
-    ([configured]) => normPath(configured) === key
-  )
-  return entry?.[1] || 'ask'
-}
+const sshRulesForServer = (profileId: string): SshCommandPermission[] =>
+  sshCommandPermissions.value.filter((rule) => rule.sshProfileId === profileId)
 
-const sshRulesForDirectory = (directory: string): SshCommandPermission[] => {
-  const key = normPath(directory)
-  return sshCommandPermissions.value.filter((rule) => normPath(rule.directory) === key)
-}
-
-const onSshDirectoryPolicyChange = async (
-  directory: string,
-  policy: SshDirectoryPolicy
+const onSshServerPolicyChange = async (
+  profileId: string,
+  policy: SshServerPolicy
 ): Promise<void> => {
-  const next = { ...sshDirectoryPermissions.value }
-  for (const configured of Object.keys(next)) {
-    if (normPath(configured) === normPath(directory)) delete next[configured]
-  }
-  if (policy !== 'ask') next[directory] = policy
-  sshDirectoryPermissions.value = next
-  await window.api.settingsSetNow({ sshDirectoryPermissions: next })
+  const next = { ...sshServerPermissions.value }
+  if (policy === 'ask') delete next[profileId]
+  else next[profileId] = policy
+  sshServerPermissions.value = next
+  await window.api.settingsSetNow({ sshServerPermissions: next })
 }
 
 const removeSshCommandPermission = async (id: string): Promise<void> => {
@@ -777,7 +759,7 @@ onMounted(async () => {
           typeof item.command === 'string'
       )
     }
-    sshDirectoryPermissions.value = { ...(settings.sshDirectoryPermissions || {}) }
+    sshServerPermissions.value = { ...(settings.sshServerPermissions || {}) }
     sshCommandPermissions.value = Array.isArray(settings.sshCommandPermissions)
       ? settings.sshCommandPermissions
       : []
@@ -1324,23 +1306,25 @@ onUnmounted(() => {
               <ShieldCheck :size="14" class="settings-section-icon" />
               <h3 class="settings-section-title">SSH 权限</h3>
             </header>
-            <div v-if="!openedLocalDirectories.length" class="ssh-permission-empty">
-              当前没有打开的本地目录
+            <div v-if="!sshProfiles.length" class="ssh-permission-empty">
+              暂无已保存的 SSH 服务器
             </div>
-            <div
-              v-for="directory in openedLocalDirectories"
-              :key="normPath(directory)"
-              class="ssh-permission-directory"
-            >
+            <div v-for="profile in sshProfiles" :key="profile.id" class="ssh-permission-server">
               <div class="ssh-permission-heading">
-                <code class="ssh-permission-path" :title="directory">{{ directory }}</code>
+                <span
+                  class="ssh-permission-server-details"
+                  :title="`${profile.username}@${profile.host}:${profile.port}`"
+                >
+                  <strong>{{ profile.name || `${profile.username}@${profile.host}` }}</strong>
+                  <small>{{ profile.username }}@{{ profile.host }}:{{ profile.port }}</small>
+                </span>
                 <el-select
-                  :model-value="sshDirectoryPolicy(directory)"
+                  :model-value="sshServerPolicy(profile.id)"
                   size="small"
                   popper-class="settings-select-popper"
                   style="width: 180px"
                   @update:model-value="
-                    (value: SshDirectoryPolicy) => onSshDirectoryPolicyChange(directory, value)
+                    (value: SshServerPolicy) => onSshServerPolicyChange(profile.id, value)
                   "
                 >
                   <el-option label="每次确认" value="ask" />
@@ -1348,17 +1332,15 @@ onUnmounted(() => {
                   <el-option label="拒绝" value="deny" />
                 </el-select>
               </div>
-              <div v-if="sshRulesForDirectory(directory).length" class="ssh-command-rules">
+              <div v-if="sshRulesForServer(profile.id).length" class="ssh-command-rules">
                 <div
-                  v-for="rule in sshRulesForDirectory(directory)"
+                  v-for="rule in sshRulesForServer(profile.id)"
                   :key="rule.id"
                   class="ssh-command-rule"
                 >
                   <div class="ssh-command-rule-body">
                     <code class="ssh-command-text" :title="rule.command">{{ rule.command }}</code>
-                    <span class="ssh-command-target">{{
-                      rule.sshLabel || sshProfileLabel(rule.sshProfileId)
-                    }}</span>
+                    <span class="ssh-command-target">旧规则 · 来源目录 {{ rule.directory }}</span>
                   </div>
                   <button
                     class="ssh-command-delete"
@@ -2130,7 +2112,7 @@ onUnmounted(() => {
   text-align: center;
 }
 
-.ssh-permission-directory {
+.ssh-permission-server {
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -2153,15 +2135,32 @@ onUnmounted(() => {
   }
 }
 
-.ssh-permission-path {
+.ssh-permission-server-details {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
   min-width: 0;
   flex: 1;
   overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  color: var(--el-text-color-primary);
-  font-size: 11.5px;
-  @include mono-font;
+
+  strong,
+  small {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  strong {
+    color: var(--el-text-color-primary);
+    font-size: 12px;
+    font-weight: 600;
+  }
+
+  small {
+    color: var(--el-text-color-secondary);
+    font-size: 10.5px;
+    @include mono-font;
+  }
 }
 
 .ssh-command-rules {

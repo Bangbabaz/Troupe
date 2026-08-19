@@ -43,6 +43,8 @@ async function openDiff(): Promise<void> {
     diffLoading.value = false
   }
 }
+
+defineExpose({ openDiff })
 </script>
 
 <template>

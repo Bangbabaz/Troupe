@@ -331,7 +331,7 @@ async function removeWorktree(w: WorktreeInfo): Promise<void> {
 }
 
 // 父级通过 ref 调用 —— BranchSelector 的 "来自分支的新工作树" 右键菜单走这里。
-defineExpose({ openWorktreeDialog })
+defineExpose({ openWorktreeDialog, openWtManage })
 </script>
 
 <template>

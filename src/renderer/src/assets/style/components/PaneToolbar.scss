@@ -1,7 +1,58 @@
+@mixin compact-pane-tools($scope, $identity-min-width) {
+  #{$scope} .pane-identity {
+    min-width: $identity-min-width;
+  }
+
+  #{$scope} .pane-git-overflow-tools,
+  #{$scope} .browser-btn,
+  #{$scope} .session-btn {
+    display: none;
+  }
+
+  #{$scope} .pane-more-menu {
+    display: inline-flex;
+  }
+
+  #{$scope} .pane-location {
+    gap: 4px;
+    padding: 0 6px;
+  }
+
+  #{$scope} .pane-git-section :deep(.branch-select) {
+    width: 108px;
+  }
+
+  #{$scope} .pane-git-section,
+  #{$scope} .pane-action-section {
+    gap: 3px;
+    padding-left: 5px;
+  }
+}
+
+@mixin collapse-pane-tools($scope, $identity-min-width) {
+  @include compact-pane-tools($scope, $identity-min-width);
+
+  #{$scope} .pane-diff-tool,
+  #{$scope} .pane-task-section {
+    display: none;
+  }
+
+  #{$scope} .pane-git-section {
+    min-width: 68px;
+    max-width: 108px;
+    flex: 0 1 108px;
+
+    :deep(.branch-select) {
+      width: 100%;
+      min-width: 0;
+    }
+  }
+}
+
 .pane-toolbar {
   display: flex;
   align-items: center;
-  gap: 7px;
+  gap: 5px;
   height: 40px;
   padding: 0 7px 0 5px;
   overflow: hidden;
@@ -34,15 +85,38 @@
 .pane-drag-handle,
 .files-btn,
 .browser-btn,
-.session-btn {
+.session-btn,
+.more-btn {
   @include toolbar-icon-button(28px);
 }
 
 .files-btn.is-active,
-.browser-btn.is-active {
+.browser-btn.is-active,
+.more-btn.is-active {
   border-color: color-mix(in srgb, var(--el-color-primary) 45%, var(--el-border-color));
   background: color-mix(in srgb, var(--el-color-primary) 10%, var(--el-bg-color));
   color: var(--el-color-primary);
+}
+
+.more-btn {
+  position: relative;
+
+  &.has-running-task::after,
+  &.has-warning::after {
+    position: absolute;
+    top: 4px;
+    right: 4px;
+    width: 5px;
+    height: 5px;
+    border: 1px solid var(--el-bg-color-overlay);
+    border-radius: 50%;
+    background: var(--el-color-success);
+    content: '';
+  }
+
+  &.has-warning::after {
+    background: var(--el-color-danger);
+  }
 }
 
 .pane-drag-handle {
@@ -64,9 +138,9 @@
   gap: 6px;
   min-width: 0;
   width: 100%;
-  max-width: 154px;
   height: 28px;
   padding: 0 9px;
+  overflow: hidden;
   border: 1px solid var(--el-border-color-light);
   border-radius: 6px;
   background: var(--el-bg-color);
@@ -100,6 +174,18 @@
   padding-right: 0;
 }
 
+.pane-git-section :deep(.branch-select) {
+  width: 132px;
+}
+
+.pane-git-overflow-tools {
+  display: contents;
+}
+
+.pane-diff-tool {
+  display: contents;
+}
+
 .pane-action-section {
   margin-left: auto;
 
@@ -108,16 +194,13 @@
   }
 }
 
-.pane-toolbar-spacer {
-  min-width: 2px;
-  flex: 1;
+.pane-more-menu {
+  display: none;
 }
 
-.control-divider {
-  width: 1px;
-  height: 16px;
-  margin: 0 1px;
-  background: var(--el-border-color);
+.pane-toolbar-spacer {
+  min-width: 0;
+  flex: 1;
 }
 
 .remote-badge {
@@ -128,12 +211,13 @@
   gap: 5px;
   height: 28px;
   padding: 0 8px;
+  overflow: hidden;
   border: 1px solid color-mix(in srgb, var(--el-color-warning) 38%, var(--el-border-color));
   border-radius: 6px;
   color: var(--el-color-warning);
   background: color-mix(in srgb, var(--el-color-warning) 8%, var(--el-bg-color));
   font-size: 11px;
-  flex-shrink: 1;
+  flex: 0 1 150px;
 
   span {
     min-width: 0;
@@ -143,67 +227,97 @@
   }
 }
 
-@container (max-width: 760px) {
-  .pane-toolbar {
-    gap: 5px;
-  }
+.pane-tool-menu-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
 
-  .pane-location {
-    max-width: 108px;
-  }
-
-  .branch-select,
-  .task-select {
-    width: 116px;
-  }
-
-  .pane-toolbar-section {
-    gap: 3px;
-    padding-left: 5px;
+  &.is-danger {
+    color: var(--el-color-danger);
   }
 }
 
+.pane-tool-task-status {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--el-text-color-placeholder);
+  flex-shrink: 0;
+
+  &.running {
+    background: var(--el-color-success);
+  }
+
+  &.failed {
+    background: var(--el-color-danger);
+  }
+}
+
+.pane-tool-stop-icon {
+  color: var(--el-color-danger);
+}
+
+:global(.pane-tools-dropdown .el-dropdown-menu) {
+  max-height: min(70vh, 520px);
+  overflow-y: auto;
+}
+
+:global(.pane-tools-dropdown .el-dropdown-menu__item) {
+  gap: 8px;
+  min-width: 220px;
+}
+
+:global(.pane-tools-dropdown .pane-tool-menu-heading) {
+  color: var(--el-text-color-placeholder);
+  font-size: 10px;
+  font-weight: 650;
+  opacity: 1;
+}
+
+@container (max-width: 760px) {
+  @include compact-pane-tools('.pane-toolbar.is-repo', 72px);
+}
+
+@container (max-width: 640px) {
+  @include collapse-pane-tools('.pane-toolbar.is-repo', 72px);
+}
+
 @container (max-width: 560px) {
-  .pane-toolbar {
-    height: 72px;
-    padding: 5px 6px;
-    overflow-x: auto;
-    align-content: center;
-    flex-wrap: wrap;
-    row-gap: 4px;
-  }
+  @include collapse-pane-tools('.pane-toolbar:not(.is-repo):not(.is-remote)', 72px);
+}
 
+@container (max-width: 440px) {
+  @include collapse-pane-tools('.pane-toolbar.is-remote', 72px);
+
+  .pane-toolbar.is-remote .remote-badge {
+    max-width: 108px;
+  }
+}
+
+@container (max-width: 320px) {
   .pane-identity {
-    order: 1;
-    flex: 1;
-  }
-
-  .pane-action-section {
-    order: 1;
-    margin-left: auto;
-  }
-
-  .pane-git-section,
-  .pane-task-section,
-  .remote-badge {
-    order: 2;
-  }
-
-  .pane-toolbar-spacer {
-    display: none;
+    min-width: 48px;
   }
 
   .pane-location {
-    max-width: 116px;
+    padding: 0 5px;
   }
 
-  .branch-select,
-  .task-select {
-    width: 104px;
+  .pane-location-icon {
+    display: none;
   }
 
   .pane-git-section {
-    padding-left: 0;
-    border-left: 0;
+    min-width: 58px;
+    max-width: 86px;
+    padding-left: 3px;
+    flex-basis: 86px;
+  }
+
+  .pane-action-section {
+    gap: 2px;
+    padding-left: 3px;
   }
 }

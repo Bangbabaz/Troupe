@@ -421,8 +421,8 @@ app.whenReady().then(() => {
           visibleApprovalText(request.command),
           '',
           request.dangerous
-            ? '危险命令即使已开启目录授权，仍会逐次确认。'
-            : '“始终允许低风险命令”仅对当前来源目录生效；危险命令仍会逐次确认。'
+            ? '危险命令即使已开启服务器授权，仍会逐次确认。'
+            : '“始终允许低风险命令”仅对当前 SSH 服务器生效；危险命令仍会逐次确认。'
         ].join('\n'),
         buttons: ['仅本次允许', '始终允许低风险命令', '拒绝'],
         defaultId: 2,
@@ -774,16 +774,19 @@ app.whenReady().then(() => {
         ? profiles.map((item, index) => (index === existing ? next : item))
         : [...profiles, next]
     const previous = existing >= 0 ? profiles[existing] : undefined
-    const targetChanged =
+    const serverChanged =
       !!previous &&
       (previous.host !== next.host ||
         previous.port !== next.port ||
-        previous.username !== next.username ||
-        previous.remoteCwd !== next.remoteCwd)
+        previous.username !== next.username)
+    const targetChanged = serverChanged || (!!previous && previous.remoteCwd !== next.remoteCwd)
+    const serverPermissions = { ...(readSettings().sshServerPermissions || {}) }
+    if (serverChanged) delete serverPermissions[next.id]
     updateSettings({
       sshProfiles: updated,
       ...(targetChanged
         ? {
+            sshServerPermissions: serverPermissions,
             sshCommandPermissions: (readSettings().sshCommandPermissions || []).filter(
               (rule) => rule.sshProfileId !== next.id
             )
@@ -795,8 +798,11 @@ app.whenReady().then(() => {
   })
   ipcMain.handle('ssh-profile-delete', (_event, profileId: string): void => {
     const profiles = readSettings().sshProfiles || []
+    const serverPermissions = { ...(readSettings().sshServerPermissions || {}) }
+    delete serverPermissions[profileId]
     updateSettings({
       sshProfiles: profiles.filter((item) => item.id !== profileId),
+      sshServerPermissions: serverPermissions,
       sshCommandPermissions: (readSettings().sshCommandPermissions || []).filter(
         (rule) => rule.sshProfileId !== profileId
       )

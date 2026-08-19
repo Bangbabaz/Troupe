@@ -1,5 +1,6 @@
 import { ref, computed, watch, type Ref, type ComputedRef } from 'vue'
 import type { TaskMeta } from '@shared/types'
+import { toPlainPaneDirectoryTaskSelections } from '../utils/taskSelectionSettings'
 
 // 全局后台任务列表 + 分层选中状态。任务数据跨所有 pane 共享；TasksDrawer 使用
 // 一个全局查看项，各 TaskRunner 则按 paneId 保存自己的选择。
@@ -114,7 +115,7 @@ function selectPaneTask(paneId: string, cwd: string, id: string | null): void {
     if (id) paneSelections[directory] = id
     else delete paneSelections[directory]
   }
-  const nextDirectorySelections = { ...paneDirectorySelectedIds.value }
+  const nextDirectorySelections = toPlainPaneDirectoryTaskSelections(paneDirectorySelectedIds.value)
   if (Object.keys(paneSelections).length) nextDirectorySelections[paneId] = paneSelections
   else delete nextDirectorySelections[paneId]
   paneDirectorySelectedIds.value = nextDirectorySelections

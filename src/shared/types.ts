@@ -323,8 +323,10 @@ export interface Settings {
   quickCommands?: QuickCommand[]
   /** SSH 远程终端连接配置。密码仅在系统安全存储可用时加密保存。 */
   sshProfiles?: SshProfile[]
-  /** 已打开本地目录通过 Terminal MCP 操作 SSH 时的默认权限。未配置目录默认每次询问。 */
-  sshDirectoryPermissions?: Record<string, SshDirectoryPolicy>
+  /** Terminal MCP 按 SSH 配置保存的默认权限。未配置服务器默认每次询问。 */
+  sshServerPermissions?: Record<string, SshServerPolicy>
+  /** @deprecated 旧版按本地目录保存的权限，不再参与授权判断。 */
+  sshDirectoryPermissions?: Record<string, SshServerPolicy>
   /** 旧版“始终允许”保存的精确命令规则，仅用于兼容已有配置。 */
   sshCommandPermissions?: SshCommandPermission[]
 }
@@ -369,7 +371,7 @@ export interface SshProfile {
   remoteCwd?: string
 }
 
-export type SshDirectoryPolicy = 'ask' | 'always_allow' | 'deny'
+export type SshServerPolicy = 'ask' | 'always_allow' | 'deny'
 
 export interface SshCommandPermission {
   id: string
